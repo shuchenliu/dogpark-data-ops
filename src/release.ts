@@ -453,20 +453,34 @@ const removeStoredBuilds = async (
 
     // Log individual results
     buildNames.forEach((buildName, index) => {
-        if ((results[index] as any).status === "fulfilled") {
-            console.log(`✅ ${dryRunLabel}Would remove ${buildName}`);
+        const result = results[index] as any;
+        if (result.status === "fulfilled") {
+            if (dryRun) {
+                console.log(`✅ Would remove ${buildName}`);
+            } else {
+                const response = result.value as Response;
+                if (response && response.ok) {
+                    console.log(`✅ Removed ${buildName}`);
+                } else {
+                    const status = response?.status || "unknown";
+                    console.log(
+                        `❌ Failed to remove ${buildName}: HTTP ${status}`,
+                    );
+                }
+            }
         } else {
-            console.log(
-                `❌ Failed to remove ${buildName}: ${(results[index] as any).reason}`,
-            );
+            console.log(`❌ Failed to remove ${buildName}: ${result.reason}`);
         }
     });
 
     // Log summary
-    const successful = results.filter(
-        (r: any) => r.status === "fulfilled",
-    ).length;
-    const failed = results.filter((r: any) => r.status === "rejected").length;
+    const successful = results.filter((r: any) => {
+        if (dryRun) {
+            return r.status === "fulfilled";
+        }
+        return r.status === "fulfilled" && (r.value as Response).ok;
+    }).length;
+    const failed = results.length - successful;
     console.log(
         `\n✨ ${dryRunLabel}Removal complete: ${successful} successful, ${failed} failed`,
     );

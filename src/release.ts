@@ -79,6 +79,15 @@ type AliasAction = AddAliasAction | RemoveAliasAction;
 
 type AliasResponse = Record<string, Record<string, unknown>>;
 
+/**
+ * Represents a single alias operation (add or remove)
+ */
+interface AliasOperation {
+    action: "add" | "remove";
+    indices: string[];
+    alias: string;
+}
+
 const buildAliasPayload = (
     indices: string[],
     alias: string,
@@ -93,16 +102,49 @@ const buildAliasPayload = (
     };
 };
 
+/**
+ * Creates a payload for multiple alias operations (mixed add/remove)
+ */
+const buildBulkAliasPayload = (
+    operations: AliasOperation[],
+): { actions: AliasAction[] } => {
+    const allActions = operations.flatMap(
+        (op) => buildAliasPayload(op.indices, op.alias, op.action).actions,
+    );
+    return { actions: allActions };
+};
+
+/**
+ * Executes multiple alias operations in a single API call
+ */
+const updateAliases = async (
+    operations: AliasOperation[],
+): Promise<Response> => {
+    const payload = buildBulkAliasPayload(operations);
+    return await fetch(`${ES_URL}_aliases`, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+    });
+};
+
+const assertAliasesOk = async (response: Response) => {
+    if (!response.ok) {
+        const text = await response.text();
+        throw new Error(
+            `Elasticsearch alias update failed (HTTP ${response.status}): ${text}`,
+        );
+    }
+};
+
 const executeAliasActions =
     (action: "add" | "remove") => async (names: string[], alias: string) => {
-        const payload = buildAliasPayload(names, alias, action);
-        return await fetch(`${ES_URL}_aliases`, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-            },
-            body: JSON.stringify(payload),
-        });
+        const operations: AliasOperation[] = [
+            { action, indices: names, alias },
+        ];
+        return updateAliases(operations);
     };
 
 const assignAlias = executeAliasActions("add");
@@ -375,13 +417,6 @@ const releaseStaging = async (fileName: string, dryRun: boolean = false) => {
     }
 };
 
-const deprecateProdIndices = async (names: string[]) => {
-    await assignDeprTag(names);
-    // store deprecated names for future rollback
-    const fileName = getTimeString();
-    fs.writeFileSync(`depr-${fileName}.txt`, names.join("\n"), "utf8");
-};
-
 const releaseProd = async (buildRecordName: string) => {
     // 0. get current prod indices
     const prodNames = await getIndexNamesWithAlias(PROD_TAG);
@@ -402,16 +437,19 @@ const releaseProd = async (buildRecordName: string) => {
         }
     }
 
-    // 2. switch staging indices to prod
-    await assignProdTag(stagingCandidates);
-    // 4. remove ex-prod tags - data removal depending on redundancy
-    await removeProdTag(prodNames);
+    // 2. switch prod alias, deprecate old prod, and clear staging in one request
+    const aliasResponse = await updateAliases([
+        { action: "add", indices: stagingCandidates, alias: PROD_TAG },
+        { action: "remove", indices: prodNames, alias: PROD_TAG },
+        { action: "add", indices: prodNames, alias: DEPR_TAG },
+        { action: "remove", indices: stagingCandidates, alias: STAGING_TAG },
+    ]);
 
-    // deprecate and store names for future rollback
-    await deprecateProdIndices(prodNames);
+    await assertAliasesOk(aliasResponse);
 
-    // 3. remove staging tag
-    await removeStagingTag(stagingCandidates);
+    // 3. store deprecated names for rollback (only after alias update succeeds)
+    const fileName = getTimeString();
+    fs.writeFileSync(`depr-${fileName}.txt`, prodNames.join("\n"), "utf8");
 };
 
 const rollBackIndices = async (deprRecordFileName: string) => {
@@ -422,9 +460,16 @@ const rollBackIndices = async (deprRecordFileName: string) => {
     const prodNames = await getIndexNamesWithAlias(PROD_TAG);
     const indexNames = readNames(deprRecordFileName);
 
-    await assignProdTag(indexNames);
-    await removeProdTag(prodNames);
-    await deprecateProdIndices(prodNames);
+    const aliasResponse = await updateAliases([
+        { action: "add", indices: indexNames, alias: PROD_TAG },
+        { action: "remove", indices: prodNames, alias: PROD_TAG },
+        { action: "add", indices: prodNames, alias: DEPR_TAG },
+    ]);
+
+    await assertAliasesOk(aliasResponse);
+
+    const fileName = getTimeString();
+    fs.writeFileSync(`depr-${fileName}.txt`, prodNames.join("\n"), "utf8");
 };
 
 // todo

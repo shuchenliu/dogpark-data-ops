@@ -352,18 +352,27 @@ const startAddNewBuilds = async (
     return results;
 };
 
-const releaseStaging = async (fileName: string) => {
+const releaseStaging = async (fileName: string, dryRun: boolean = false) => {
     const buildNames = readNames(fileName);
+    const dryRunLabel = dryRun ? "[DRY RUN] " : "";
 
-    // 1. release data
-    await startIndex(buildNames);
-    console.log("indexing started");
+    if (dryRun) {
+        console.log(
+            `${dryRunLabel}Would start indexing for ${buildNames.length} builds`,
+        );
+        console.log(`${dryRunLabel}Would assign staging tags to:`);
+        buildNames.forEach((name) => console.log(`  ${name}`));
+    } else {
+        // 1. release data
+        await startIndex(buildNames);
+        console.log("indexing started");
 
-    // 2. assign tags
-    await sleep(5000);
-    await assignStagingTag(buildNames);
+        // 2. assign tags
+        await sleep(5000);
+        await assignStagingTag(buildNames);
 
-    console.log("staging tags assigned");
+        console.log("staging tags assigned");
+    }
 };
 
 const deprecateProdIndices = async (names: string[]) => {
@@ -490,8 +499,12 @@ const removeStoredBuilds = async (
 
 (async function () {
     const args = process.argv.slice(2);
+
+    // Parse flags
     const hasBuild = args.includes("-b") || args.includes("--build");
     const hasRemove = args.includes("-rb") || args.includes("--remove-build");
+    const hasReleaseStaging =
+        args.includes("-rs") || args.includes("--release-staging");
     const hasDryRun = args.includes("-d") || args.includes("--dry-run");
 
     // Parse duration argument (in seconds, default 3 minutes = 180 seconds)
@@ -519,15 +532,61 @@ const removeStoredBuilds = async (
         removeFileName = args[removeIndex + 1];
     }
 
-    if (hasBuild) {
-        console.log("Starting build process...");
-        await startAddNewBuilds(DATASETS, durationSeconds * 1000, hasDryRun);
-    } else if (hasRemove) {
-        console.log("Starting removal process...");
-        await removeStoredBuilds(removeFileName, hasDryRun);
+    // Parse filename for release staging operation
+    let stagingFileName: string | undefined;
+    const stagingIndex = args.findIndex(
+        (arg) => arg === "--release-staging" || arg === "-rs",
+    );
+    if (
+        stagingIndex !== -1 &&
+        stagingIndex + 1 < args.length &&
+        !args[stagingIndex + 1].startsWith("-")
+    ) {
+        stagingFileName = args[stagingIndex + 1];
+    }
+
+    // Define actions
+    type Action = {
+        check: () => boolean;
+        execute: () => Promise<void>;
+    };
+
+    const actions: Action[] = [
+        {
+            check: () => hasBuild,
+            execute: async () => {
+                console.log("Starting build process...");
+                await startAddNewBuilds(
+                    DATASETS,
+                    durationSeconds * 1000,
+                    hasDryRun,
+                );
+            },
+        },
+        {
+            check: () => hasRemove,
+            execute: async () => {
+                console.log("Starting removal process...");
+                await removeStoredBuilds(removeFileName, hasDryRun);
+            },
+        },
+        {
+            check: () => hasReleaseStaging,
+            execute: async () => {
+                console.log("Starting staging release process...");
+                const targetFile = stagingFileName || "latest-builds.txt";
+                await releaseStaging(targetFile, hasDryRun);
+            },
+        },
+    ];
+
+    // Execute the first matching action
+    const action = actions.find((a) => a.check());
+    if (action) {
+        await action.execute();
     } else {
         console.log(
-            "Usage: npx tsx release.ts [-b|--build] [-rb|--remove-build [filename]]",
+            "Usage: npx tsx release.ts [-b|--build] [-rb|--remove-build [filename]] [-rs|--release-staging [filename]]",
         );
         console.log("Build options:");
         console.log(
@@ -539,6 +598,10 @@ const removeStoredBuilds = async (
         console.log("\nRemoval options:");
         console.log(
             "  -rb, --remove-build [filename] Remove builds from file (defaults to latest-builds.txt)",
+        );
+        console.log("\nStaging options:");
+        console.log(
+            "  -rs, --release-staging [filename] Release builds to staging (defaults to latest-builds.txt)",
         );
         console.log("\nCommon options:");
         console.log(

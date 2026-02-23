@@ -425,6 +425,9 @@ const releaseProd = async (
 
     // 1. get target staging indices
     const stagingCandidates = readNames(buildRecordName);
+    if (stagingCandidates.length === 0) {
+        throw new Error("No staging indices provided for prod release");
+    }
 
     if (dryRun) {
         const prodNames = await getIndexNamesWithAlias(PROD_TAG);

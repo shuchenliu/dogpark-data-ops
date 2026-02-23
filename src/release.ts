@@ -417,18 +417,42 @@ const releaseStaging = async (fileName: string, dryRun: boolean = false) => {
     }
 };
 
-const releaseProd = async (buildRecordName: string) => {
-    // 0. get current prod indices
-    const prodNames = await getIndexNamesWithAlias(PROD_TAG);
+const releaseProd = async (
+    buildRecordName: string,
+    dryRun: boolean = false,
+) => {
+    const dryRunLabel = dryRun ? "[DRY RUN] " : "";
 
     // 1. get target staging indices
     const stagingCandidates = readNames(buildRecordName);
 
+    if (dryRun) {
+        const prodNames = await getIndexNamesWithAlias(PROD_TAG);
+        console.log(
+            `${dryRunLabel}Would switch prod alias to ${stagingCandidates.length} staging indices`,
+        );
+        console.log(`${dryRunLabel}Would promote staging indices:`);
+        stagingCandidates.forEach((name) => console.log(`  ${name}`));
+        console.log(`${dryRunLabel}Current prod indices:`);
+        prodNames.forEach((name) => console.log(`  ${name}`));
+        console.log(
+            `${dryRunLabel}Would deprecate current prod indices and clear staging tags`,
+        );
+        const fileName = getTimeString();
+        const deprFileName = `depr-${fileName}-dry-run.txt`;
+        fs.writeFileSync(deprFileName, prodNames.join("\n"), "utf8");
+        console.log(
+            `${dryRunLabel}Recorded deprecated indices to ${deprFileName}`,
+        );
+        return;
+    }
+
+    // 0. get current prod indices
+    const prodNames = await getIndexNamesWithAlias(PROD_TAG);
+
     const stagingNames = new Set<string>(
         await getIndexNamesWithAlias(STAGING_TAG),
     );
-
-    // better grained tagging for better replacing, maybe
 
     // ensure these are indeed candidates
     for (const candidate of stagingCandidates) {
@@ -550,6 +574,8 @@ const removeStoredBuilds = async (
     const hasRemove = args.includes("-rb") || args.includes("--remove-build");
     const hasReleaseStaging =
         args.includes("-rs") || args.includes("--release-staging");
+    const hasReleaseProd =
+        args.includes("-rp") || args.includes("--release-prod");
     const hasDryRun = args.includes("-d") || args.includes("--dry-run");
 
     // Parse duration argument (in seconds, default 3 minutes = 180 seconds)
@@ -590,6 +616,19 @@ const removeStoredBuilds = async (
         stagingFileName = args[stagingIndex + 1];
     }
 
+    // Parse filename for release prod operation
+    let prodFileName: string | undefined;
+    const prodIndex = args.findIndex(
+        (arg) => arg === "--release-prod" || arg === "-rp",
+    );
+    if (
+        prodIndex !== -1 &&
+        prodIndex + 1 < args.length &&
+        !args[prodIndex + 1].startsWith("-")
+    ) {
+        prodFileName = args[prodIndex + 1];
+    }
+
     // Define actions
     type Action = {
         check: () => boolean;
@@ -623,6 +662,14 @@ const removeStoredBuilds = async (
                 await releaseStaging(targetFile, hasDryRun);
             },
         },
+        {
+            check: () => hasReleaseProd,
+            execute: async () => {
+                console.log("Starting prod release process...");
+                const targetFile = prodFileName || "latest-builds.txt";
+                await releaseProd(targetFile, hasDryRun);
+            },
+        },
     ];
 
     // Execute the first matching action
@@ -631,7 +678,7 @@ const removeStoredBuilds = async (
         await action.execute();
     } else {
         console.log(
-            "Usage: npx tsx release.ts [-b|--build] [-rb|--remove-build [filename]] [-rs|--release-staging [filename]]",
+            "Usage: npx tsx release.ts [-b|--build] [-rb|--remove-build [filename]] [-rs|--release-staging [filename]] [-rp|--release-prod [filename]]",
         );
         console.log("Build options:");
         console.log(
@@ -647,6 +694,10 @@ const removeStoredBuilds = async (
         console.log("\nStaging options:");
         console.log(
             "  -rs, --release-staging [filename] Release builds to staging (defaults to latest-builds.txt)",
+        );
+        console.log("\nProd options:");
+        console.log(
+            "  -rp, --release-prod [filename]  Release builds to prod (defaults to latest-builds.txt)",
         );
         console.log("\nCommon options:");
         console.log(

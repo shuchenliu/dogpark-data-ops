@@ -60,6 +60,7 @@ const ES_URL = "http://localhost:9200/";
 const STAGING_TAG = "dingo_staging";
 const PROD_TAG = "dingo";
 const DEPR_TAG = "dingo_deprecated";
+const DEL_TAG = "dingo_to_be_deleted";
 
 interface AddAliasAction {
     add: {
@@ -489,6 +490,8 @@ const rollBackIndices = async (deprRecordFileName: string) => {
 
     const aliasResponse = await updateAliases([
         { action: "add", indices: indexNames, alias: PROD_TAG },
+        { action: "remove", indices: indexNames, alias: DEPR_TAG },
+        { action: "remove", indices: indexNames, alias: DEL_TAG },
         { action: "remove", indices: prodNames, alias: PROD_TAG },
         { action: "add", indices: prodNames, alias: DEPR_TAG },
     ]);

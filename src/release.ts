@@ -421,6 +421,7 @@ const releaseStaging = async (fileName: string, dryRun: boolean = false) => {
 const releaseProd = async (
     buildRecordName: string,
     dryRun: boolean = false,
+    markOldDeprForDeletion: boolean = true,
 ) => {
     const dryRunLabel = dryRun ? "[DRY RUN] " : "";
 
@@ -432,6 +433,9 @@ const releaseProd = async (
 
     if (dryRun) {
         const prodNames = await getIndexNamesWithAlias(PROD_TAG);
+        const oldDeprNames = markOldDeprForDeletion
+            ? await getIndexNamesWithAlias(DEPR_TAG)
+            : [];
         console.log(
             `${dryRunLabel}Would switch prod alias to ${stagingCandidates.length} staging indices`,
         );
@@ -442,6 +446,12 @@ const releaseProd = async (
         console.log(
             `${dryRunLabel}Would deprecate current prod indices and clear staging tags`,
         );
+        if (markOldDeprForDeletion && oldDeprNames.length > 0) {
+            console.log(
+                `${dryRunLabel}Would mark ${oldDeprNames.length} old deprecated indices for deletion:`,
+            );
+            oldDeprNames.forEach((name) => console.log(`  ${name}`));
+        }
         const fileName = getTimeString();
         const deprFileName = `depr-${fileName}-dry-run.txt`;
         fs.writeFileSync(deprFileName, prodNames.join("\n"), "utf8");
@@ -465,13 +475,32 @@ const releaseProd = async (
         }
     }
 
+    // 1.5. get old deprecated indices if we need to mark them for deletion
+    const oldDeprNames = markOldDeprForDeletion
+        ? await getIndexNamesWithAlias(DEPR_TAG)
+        : [];
+
     // 2. switch prod alias, deprecate old prod, and clear staging in one request
-    const aliasResponse = await updateAliases([
+    // Also mark old deprecated indices for deletion if requested
+    const operations: AliasOperation[] = [
         { action: "add", indices: stagingCandidates, alias: PROD_TAG },
         { action: "remove", indices: prodNames, alias: PROD_TAG },
         { action: "add", indices: prodNames, alias: DEPR_TAG },
         { action: "remove", indices: stagingCandidates, alias: STAGING_TAG },
-    ]);
+    ];
+
+    if (markOldDeprForDeletion && oldDeprNames.length > 0) {
+        operations.push({
+            action: "add",
+            indices: oldDeprNames,
+            alias: DEL_TAG,
+        });
+        console.log(
+            `Marking ${oldDeprNames.length} old deprecated indices for deletion`,
+        );
+    }
+
+    const aliasResponse = await updateAliases(operations);
 
     await assertAliasesOk(aliasResponse);
 
@@ -583,6 +612,9 @@ const removeStoredBuilds = async (
     const hasReleaseProd =
         args.includes("-rp") || args.includes("--release-prod");
     const hasDryRun = args.includes("-d") || args.includes("--dry-run");
+    const hasSkipMarkOldDeprForDeletion =
+        args.includes("--skip-mark-old-depr-for-deletion") ||
+        args.includes("--skip-mark-old-depr");
 
     // Parse duration argument (in seconds, default 3 minutes = 180 seconds)
     let durationSeconds = 180;
@@ -673,7 +705,11 @@ const removeStoredBuilds = async (
             execute: async () => {
                 console.log("Starting prod release process...");
                 const targetFile = prodFileName || "latest-builds.txt";
-                await releaseProd(targetFile, hasDryRun);
+                await releaseProd(
+                    targetFile,
+                    hasDryRun,
+                    !hasSkipMarkOldDeprForDeletion,
+                );
             },
         },
     ];
@@ -704,6 +740,12 @@ const removeStoredBuilds = async (
         console.log("\nProd options:");
         console.log(
             "  -rp, --release-prod [filename]  Release builds to prod (defaults to latest-builds.txt)",
+        );
+        console.log(
+            "  --skip-mark-old-depr-for-deletion  Skip marking old deprecated indices with deletion tag",
+        );
+        console.log(
+            "  --skip-mark-old-depr               (alias for --skip-mark-old-depr-for-deletion)",
         );
         console.log("\nCommon options:");
         console.log(

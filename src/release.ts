@@ -173,7 +173,7 @@ const getIndexNamesWithAlias = async (alias: string): Promise<string[]> => {
     }
 
     const data = (await res.json()) as AliasResponse;
-    return Object.keys(data);
+    return Object.keys(data).sort();
 };
 
 const assignStagingTag = (names: string[]) => assignAlias(names, STAGING_TAG);

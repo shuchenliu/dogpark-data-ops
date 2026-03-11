@@ -80,6 +80,9 @@ interface RemoveAliasAction {
 type AliasAction = AddAliasAction | RemoveAliasAction;
 
 type AliasResponse = Record<string, Record<string, unknown>>;
+type DeleteIndicesResponse = {
+    acknowledged?: boolean;
+};
 
 /**
  * Represents a single alias operation (add or remove)
@@ -184,6 +187,32 @@ const removeProdTag = (names: string[]) => removeAlias(names, PROD_TAG);
 
 const assignDeprTag = (names: string[]) => assignAlias(names, DEPR_TAG);
 const removeDeprTag = (names: string[]) => removeAlias(names, DEPR_TAG);
+
+const deleteIndices = async (
+    indexNames: string[],
+): Promise<DeleteIndicesResponse> => {
+    const target = indexNames.map(encodeURIComponent).join(",");
+    const response = await fetch(`${ES_URL}${target}`, {
+        method: "DELETE",
+    });
+
+    if (!response.ok) {
+        const text = await response.text();
+        throw new Error(
+            `Elasticsearch index deletion failed (HTTP ${response.status}): ${text}`,
+        );
+    }
+
+    const data = (await response.json()) as DeleteIndicesResponse;
+
+    if (!data.acknowledged) {
+        throw new Error(
+            "Elasticsearch index deletion was not acknowledged by the cluster",
+        );
+    }
+
+    return data;
+};
 
 const getDateString = () =>
     new Date().toISOString().slice(0, 10).replace(/-/g, "");
@@ -532,8 +561,42 @@ const rollBackIndices = async (deprRecordFileName: string) => {
     fs.writeFileSync(`depr-${fileName}.txt`, prodNames.join("\n"), "utf8");
 };
 
-// todo
-const removeDeprIndices = async (deprRecordFileName: string) => {};
+const removeIndicesWithDeleteTag = async (
+    dryRun: boolean = false,
+): Promise<void> => {
+    const dryRunLabel = dryRun ? "[DRY RUN] " : "";
+    const indexNames = await getIndexNamesWithAlias(DEL_TAG);
+
+    if (indexNames.length === 0) {
+        console.log(`${dryRunLabel}No indices found with alias ${DEL_TAG}`);
+        return;
+    }
+
+    console.log(
+        `${dryRunLabel}Found ${indexNames.length} indices tagged for deletion (${DEL_TAG})`,
+    );
+
+    indexNames.forEach((indexName) => {
+        console.log(
+            dryRun
+                ? `✅ Would delete ${indexName}`
+                : `🗑 Deleting ${indexName}`,
+        );
+    });
+
+    if (dryRun) {
+        console.log(
+            `\n✨ ${dryRunLabel}Deletion complete: ${indexNames.length} successful, 0 failed`,
+        );
+        return;
+    }
+
+    await deleteIndices(indexNames);
+
+    console.log(
+        `\n✨ Deletion complete: ${indexNames.length} successful, 0 failed`,
+    );
+};
 
 /**
  * Removes builds specified in a file.
@@ -612,6 +675,10 @@ const removeStoredBuilds = async (
         args.includes("-rs") || args.includes("--release-staging");
     const hasReleaseProd =
         args.includes("-rp") || args.includes("--release-prod");
+    const hasRemoveDeleteTaggedIndices =
+        args.includes("-rdi") ||
+        args.includes("--remove-delete-tagged-indices") ||
+        args.includes("--remove-del-tag-indices");
     const hasDryRun = args.includes("-d") || args.includes("--dry-run");
     const hasSkipMarkOldDeprForDeletion =
         args.includes("--skip-mark-old-depr-for-deletion") ||
@@ -713,6 +780,13 @@ const removeStoredBuilds = async (
                 );
             },
         },
+        {
+            check: () => hasRemoveDeleteTaggedIndices,
+            execute: async () => {
+                console.log("Starting deletion of DEL_TAG indices...");
+                await removeIndicesWithDeleteTag(hasDryRun);
+            },
+        },
     ];
 
     // Execute the first matching action
@@ -721,7 +795,7 @@ const removeStoredBuilds = async (
         await action.execute();
     } else {
         console.log(
-            "Usage: npx tsx release.ts [-b|--build] [-rb|--remove-build [filename]] [-rs|--release-staging [filename]] [-rp|--release-prod [filename]]",
+            "Usage: npx tsx release.ts [-b|--build] [-rb|--remove-build [filename]] [-rs|--release-staging [filename]] [-rp|--release-prod [filename]] [-rdi|--remove-delete-tagged-indices]",
         );
         console.log("Build options:");
         console.log(
@@ -747,6 +821,13 @@ const removeStoredBuilds = async (
         );
         console.log(
             "  --skip-mark-old-depr               (alias for --skip-mark-old-depr-for-deletion)",
+        );
+        console.log("\nDeletion options:");
+        console.log(
+            "  -rdi, --remove-delete-tagged-indices  Delete all ES indices with DEL_TAG alias",
+        );
+        console.log(
+            "  --remove-del-tag-indices              (alias for --remove-delete-tagged-indices)",
         );
         console.log("\nCommon options:");
         console.log(

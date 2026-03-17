@@ -441,7 +441,7 @@ const releaseStaging = async (fileName: string, dryRun: boolean = false) => {
         console.log("indexing started");
 
         // 2. assign tags
-        await sleep(5000);
+        await sleep(10000);
         await assignStagingTag(buildNames);
 
         console.log("staging tags assigned");

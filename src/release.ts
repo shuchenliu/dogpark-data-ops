@@ -474,14 +474,16 @@ const startAddNewBuilds = async (
 
 const releaseStaging = async (
     fileName: string,
-    dryRun: boolean = false,
+    dryRun = false,
     deployTarget: DeployTarget = DEFAULT_DEPLOY_TARGET,
+    purgeMode = false,
 ) => {
     const buildNames = readNames(fileName);
     const dryRunLabel = dryRun ? "[DRY RUN] " : "";
     const deployConfig = getDeployConfig(deployTarget);
     const { ok, actualClusterName } =
         await validateDeployClusterName(deployConfig);
+    const purgeModeLabel = purgeMode ? "ENABLED" : "DISABLED";
 
     if (!ok) {
         console.error(
@@ -502,6 +504,7 @@ const releaseStaging = async (
         console.log(
             `${dryRunLabel}Would release to target ${deployConfig.target} (${deployConfig.ES_URL})`,
         );
+        console.log(`${dryRunLabel}Purge mode: ${purgeModeLabel}`);
         console.log(
             `${dryRunLabel}Validated ES cluster_name: ${actualClusterName}`,
         );
@@ -514,9 +517,14 @@ const releaseStaging = async (
         console.log(
             `Validated ES cluster_name: ${actualClusterName} for target ${deployConfig.target}`,
         );
+        console.log(`Purge mode: ${purgeModeLabel}`);
 
         // 1. release data
-        await startIndex(buildNames, undefined, deployConfig.target);
+        await startIndex(
+            buildNames,
+            purgeMode ? "purge" : undefined,
+            deployConfig.target,
+        );
         console.log("indexing started");
 
         // 2. assign tags
@@ -762,6 +770,8 @@ const removeStoredBuilds = async (
     const hasSkipMarkOldDeprForDeletion =
         args.includes("--skip-mark-old-depr-for-deletion") ||
         args.includes("--skip-mark-old-depr");
+    const hasStagingPurgeMode =
+        args.includes("--purge") || args.includes("--purge-mode");
 
     // Parse deploy target (default: transltr)
     let deployTarget: DeployTarget = DEFAULT_DEPLOY_TARGET;
@@ -859,7 +869,12 @@ const removeStoredBuilds = async (
             execute: async () => {
                 console.log("Starting staging release process...");
                 const targetFile = stagingFileName || "latest-builds.txt";
-                await releaseStaging(targetFile, hasDryRun, deployTarget);
+                await releaseStaging(
+                    targetFile,
+                    hasDryRun,
+                    deployTarget,
+                    hasStagingPurgeMode,
+                );
             },
         },
         {
@@ -908,6 +923,9 @@ const removeStoredBuilds = async (
         );
         console.log(
             "  --deploy-target, --target <transltr|su12|itrb-ci>  Deploy target for staging release (default: transltr)",
+        );
+        console.log(
+            "  --purge, --purge-mode       Enable purge mode when starting staging index jobs (default: disabled)",
         );
         console.log("\nProd options:");
         console.log(

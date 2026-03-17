@@ -19,7 +19,7 @@ export const ALL_DATASETS = [
     "hpoa",
     "icees",
     "intact",
-    "ncbi_gene",
+    // "ncbi_gene",
     "panther",
     "pathbank",
     "semmeddb",

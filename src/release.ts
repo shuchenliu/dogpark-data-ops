@@ -20,41 +20,7 @@ interface BuildResult {
     error?: string;
 }
 
-const DATASETS = [
-    // "alliance",
-    // "bgee",
-    // "bindingdb",
-    // "chembl",
-    // "cohd",
-    // "ctd",
-    // "ctkp",
-    // "dakp",
-    // "dgidb",
-    // "diseases",
-    // "drug_rep_hub",
-    // "drugcentral",
-    // "gene2phenotype",
-    // "geneticskp",
-    // "go_cam",
-    // "goa",
-    // "gtopdb",
-    // "hpoa",
-    // "icees",
-    // "intact",
-
-    // "ncbi_gene",
-
-    "panther",
-    "pathbank",
-    "semmeddb",
-    "sider",
-    "signor",
-    "tmkp",
-    "ttd",
-    "ubergraph",
-];
-
-// const DATASETS = ["drug_rep_hub"];
+const DATASETS = ALL_DATASETS;
 
 const ES_URL = "http://localhost:9200/";
 

@@ -22,8 +22,6 @@ interface BuildResult {
 
 const DATASETS = ALL_DATASETS;
 
-const ES_URL = "http://localhost:9200/";
-
 type DeployTarget = "transltr" | "su12" | "itrb-ci";
 
 interface DeployConfig {
@@ -124,7 +122,7 @@ const buildBulkAliasPayload = (
  */
 const updateAliases = async (
     operations: AliasOperation[],
-    esUrl: string = ES_URL,
+    esUrl: string,
 ): Promise<Response> => {
     const payload = buildBulkAliasPayload(operations);
     return await fetch(`${esUrl}_aliases`, {
@@ -147,7 +145,7 @@ const assertAliasesOk = async (response: Response) => {
 
 const executeAliasActions =
     (action: "add" | "remove") =>
-    async (names: string[], alias: string, esUrl: string = ES_URL) => {
+    async (names: string[], alias: string, esUrl: string) => {
         const operations: AliasOperation[] = [
             { action, indices: names, alias },
         ];
@@ -168,7 +166,7 @@ const removeAlias = executeAliasActions("remove");
 
 const getIndexNamesWithAlias = async (
     alias: string,
-    esUrl: string = ES_URL,
+    esUrl: string,
 ): Promise<string[]> => {
     const res = await fetch(`${esUrl}_alias/${alias}`);
 
@@ -185,25 +183,26 @@ const getIndexNamesWithAlias = async (
     return Object.keys(data).sort();
 };
 
-const assignStagingTag = (names: string[], esUrl: string = ES_URL) =>
+const assignStagingTag = (names: string[], esUrl: string) =>
     assignAlias(names, STAGING_TAG, esUrl);
-const removeStagingTag = (names: string[], esUrl: string = ES_URL) =>
+const removeStagingTag = (names: string[], esUrl: string) =>
     removeAlias(names, STAGING_TAG, esUrl);
-const assignProdTag = (names: string[], esUrl: string = ES_URL) =>
+const assignProdTag = (names: string[], esUrl: string) =>
     assignAlias(names, PROD_TAG, esUrl);
-const removeProdTag = (names: string[], esUrl: string = ES_URL) =>
+const removeProdTag = (names: string[], esUrl: string) =>
     removeAlias(names, PROD_TAG, esUrl);
 
-const assignDeprTag = (names: string[], esUrl: string = ES_URL) =>
+const assignDeprTag = (names: string[], esUrl: string) =>
     assignAlias(names, DEPR_TAG, esUrl);
-const removeDeprTag = (names: string[], esUrl: string = ES_URL) =>
+const removeDeprTag = (names: string[], esUrl: string) =>
     removeAlias(names, DEPR_TAG, esUrl);
 
 const deleteIndices = async (
     indexNames: string[],
+    esUrl: string,
 ): Promise<DeleteIndicesResponse> => {
     const target = indexNames.map(encodeURIComponent).join(",");
-    const response = await fetch(`${ES_URL}${target}`, {
+    const response = await fetch(`${esUrl}${target}`, {
         method: "DELETE",
     });
 
@@ -537,10 +536,29 @@ const releaseStaging = async (
 
 const releaseProd = async (
     buildRecordName: string,
-    dryRun: boolean = false,
-    markOldDeprForDeletion: boolean = true,
+    dryRun = false,
+    markOldDeprForDeletion = true,
+    deployTarget: DeployTarget = DEFAULT_DEPLOY_TARGET,
 ) => {
     const dryRunLabel = dryRun ? "[DRY RUN] " : "";
+    const deployConfig = getDeployConfig(deployTarget);
+    const { ok, actualClusterName } =
+        await validateDeployClusterName(deployConfig);
+
+    if (!ok) {
+        console.error(
+            `${dryRunLabel}Aborting prod release due to cluster mismatch.`,
+        );
+        console.error(`${dryRunLabel}Target: ${deployConfig.target}`);
+        console.error(`${dryRunLabel}ES URL: ${deployConfig.ES_URL}`);
+        console.error(
+            `${dryRunLabel}Expected cluster_name: ${deployConfig.cluster_name}`,
+        );
+        console.error(
+            `${dryRunLabel}Actual cluster_name: ${actualClusterName ?? "<unavailable>"}`,
+        );
+        return;
+    }
 
     // 1. get target staging indices
     const stagingCandidates = readNames(buildRecordName);
@@ -549,10 +567,19 @@ const releaseProd = async (
     }
 
     if (dryRun) {
-        const prodNames = await getIndexNamesWithAlias(PROD_TAG);
+        const prodNames = await getIndexNamesWithAlias(
+            PROD_TAG,
+            deployConfig.ES_URL,
+        );
         const oldDeprNames = markOldDeprForDeletion
-            ? await getIndexNamesWithAlias(DEPR_TAG)
+            ? await getIndexNamesWithAlias(DEPR_TAG, deployConfig.ES_URL)
             : [];
+        console.log(
+            `${dryRunLabel}Would run prod release on ${deployConfig.target} (${deployConfig.ES_URL})`,
+        );
+        console.log(
+            `${dryRunLabel}Validated ES cluster_name: ${actualClusterName}`,
+        );
         console.log(
             `${dryRunLabel}Would switch prod alias to ${stagingCandidates.length} staging indices`,
         );
@@ -579,10 +606,13 @@ const releaseProd = async (
     }
 
     // 0. get current prod indices
-    const prodNames = await getIndexNamesWithAlias(PROD_TAG);
+    const prodNames = await getIndexNamesWithAlias(
+        PROD_TAG,
+        deployConfig.ES_URL,
+    );
 
     const stagingNames = new Set<string>(
-        await getIndexNamesWithAlias(STAGING_TAG),
+        await getIndexNamesWithAlias(STAGING_TAG, deployConfig.ES_URL),
     );
 
     // ensure these are indeed candidates
@@ -594,7 +624,7 @@ const releaseProd = async (
 
     // 1.5. get old deprecated indices if we need to mark them for deletion
     const oldDeprNames = markOldDeprForDeletion
-        ? await getIndexNamesWithAlias(DEPR_TAG)
+        ? await getIndexNamesWithAlias(DEPR_TAG, deployConfig.ES_URL)
         : [];
 
     // 2. switch prod alias, deprecate old prod, and clear staging in one request
@@ -617,7 +647,7 @@ const releaseProd = async (
         );
     }
 
-    const aliasResponse = await updateAliases(operations);
+    const aliasResponse = await updateAliases(operations, deployConfig.ES_URL);
 
     await assertAliasesOk(aliasResponse);
 
@@ -626,21 +656,45 @@ const releaseProd = async (
     fs.writeFileSync(`depr-${fileName}.txt`, prodNames.join("\n"), "utf8");
 };
 
-const rollBackIndices = async (deprRecordFileName: string) => {
+const rollBackIndices = async (
+    deprRecordFileName: string,
+    deployTarget: DeployTarget = DEFAULT_DEPLOY_TARGET,
+) => {
     if (!deprRecordFileName.startsWith("depr")) {
         throw new Error("Not a valid depr record");
     }
 
-    const prodNames = await getIndexNamesWithAlias(PROD_TAG);
+    const deployConfig = getDeployConfig(deployTarget);
+    const { ok, actualClusterName } =
+        await validateDeployClusterName(deployConfig);
+
+    if (!ok) {
+        console.error("Aborting rollback due to cluster mismatch.");
+        console.error(`Target: ${deployConfig.target}`);
+        console.error(`ES URL: ${deployConfig.ES_URL}`);
+        console.error(`Expected cluster_name: ${deployConfig.cluster_name}`);
+        console.error(
+            `Actual cluster_name: ${actualClusterName ?? "<unavailable>"}`,
+        );
+        return;
+    }
+
+    const prodNames = await getIndexNamesWithAlias(
+        PROD_TAG,
+        deployConfig.ES_URL,
+    );
     const indexNames = readNames(deprRecordFileName);
 
-    const aliasResponse = await updateAliases([
-        { action: "add", indices: indexNames, alias: PROD_TAG },
-        { action: "remove", indices: indexNames, alias: DEPR_TAG },
-        { action: "remove", indices: indexNames, alias: DEL_TAG },
-        { action: "remove", indices: prodNames, alias: PROD_TAG },
-        { action: "add", indices: prodNames, alias: DEPR_TAG },
-    ]);
+    const aliasResponse = await updateAliases(
+        [
+            { action: "add", indices: indexNames, alias: PROD_TAG },
+            { action: "remove", indices: indexNames, alias: DEPR_TAG },
+            { action: "remove", indices: indexNames, alias: DEL_TAG },
+            { action: "remove", indices: prodNames, alias: PROD_TAG },
+            { action: "add", indices: prodNames, alias: DEPR_TAG },
+        ],
+        deployConfig.ES_URL,
+    );
 
     await assertAliasesOk(aliasResponse);
 
@@ -650,15 +704,41 @@ const rollBackIndices = async (deprRecordFileName: string) => {
 
 const removeIndicesWithDeleteTag = async (
     dryRun: boolean = false,
+    deployTarget: DeployTarget = DEFAULT_DEPLOY_TARGET,
 ): Promise<void> => {
     const dryRunLabel = dryRun ? "[DRY RUN] " : "";
-    const indexNames = await getIndexNamesWithAlias(DEL_TAG);
+    const deployConfig = getDeployConfig(deployTarget);
+    const { ok, actualClusterName } =
+        await validateDeployClusterName(deployConfig);
+
+    if (!ok) {
+        console.error(
+            `${dryRunLabel}Aborting index deletion due to cluster mismatch.`,
+        );
+        console.error(`${dryRunLabel}Target: ${deployConfig.target}`);
+        console.error(`${dryRunLabel}ES URL: ${deployConfig.ES_URL}`);
+        console.error(
+            `${dryRunLabel}Expected cluster_name: ${deployConfig.cluster_name}`,
+        );
+        console.error(
+            `${dryRunLabel}Actual cluster_name: ${actualClusterName ?? "<unavailable>"}`,
+        );
+        return;
+    }
+
+    const indexNames = await getIndexNamesWithAlias(
+        DEL_TAG,
+        deployConfig.ES_URL,
+    );
 
     if (indexNames.length === 0) {
         console.log(`${dryRunLabel}No indices found with alias ${DEL_TAG}`);
         return;
     }
 
+    console.log(
+        `${dryRunLabel}Target ${deployConfig.target} validated (cluster: ${actualClusterName})`,
+    );
     console.log(
         `${dryRunLabel}Found ${indexNames.length} indices tagged for deletion (${DEL_TAG})`,
     );
@@ -678,7 +758,7 @@ const removeIndicesWithDeleteTag = async (
         return;
     }
 
-    await deleteIndices(indexNames);
+    await deleteIndices(indexNames, deployConfig.ES_URL);
 
     console.log(
         `\n✨ Deletion complete: ${indexNames.length} successful, 0 failed`,
@@ -886,6 +966,7 @@ const removeStoredBuilds = async (
                     targetFile,
                     hasDryRun,
                     !hasSkipMarkOldDeprForDeletion,
+                    deployTarget,
                 );
             },
         },
@@ -893,7 +974,7 @@ const removeStoredBuilds = async (
             check: () => hasRemoveDeleteTaggedIndices,
             execute: async () => {
                 console.log("Starting deletion of DEL_TAG indices...");
-                await removeIndicesWithDeleteTag(hasDryRun);
+                await removeIndicesWithDeleteTag(hasDryRun, deployTarget);
             },
         },
     ];
@@ -929,7 +1010,7 @@ const removeStoredBuilds = async (
         );
         console.log("\nProd options:");
         console.log(
-            "  -rp, --release-prod [filename]  Release builds to prod (defaults to latest-builds.txt)",
+            "  -rp, --release-prod [filename]  Release builds to prod on selected deploy target (defaults to latest-builds.txt)",
         );
         console.log(
             "  --skip-mark-old-depr-for-deletion  Skip marking old deprecated indices with deletion tag",
@@ -939,7 +1020,7 @@ const removeStoredBuilds = async (
         );
         console.log("\nDeletion options:");
         console.log(
-            "  -rdi, --remove-delete-tagged-indices  Delete all ES indices with DEL_TAG alias",
+            "  -rdi, --remove-delete-tagged-indices  Delete DEL_TAG indices on selected deploy target",
         );
         console.log(
             "  --remove-del-tag-indices              (alias for --remove-delete-tagged-indices)",

@@ -108,10 +108,12 @@ function makeDumpRequest(name: string, force = true): Promise<Response> {
 }
 
 const makeReMethods =
-    (requestMethod: (name: string) => Promise<Response>) =>
-    (names: string[]) => {
+    <TArgs extends unknown[]>(
+        requestMethod: (name: string, ...args: TArgs) => Promise<Response>,
+    ) =>
+    (names: string[], ...args: TArgs) => {
         const requestPromises: Promise<Response>[] = names.map((name) =>
-            requestMethod(name),
+            requestMethod(name, ...args),
         );
 
         return Promise.allSettled(requestPromises);

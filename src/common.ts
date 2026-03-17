@@ -29,3 +29,19 @@ export const ALL_DATASETS = [
     "ttd",
     "ubergraph",
 ];
+
+export interface SpecialDataset {
+    build_name: string;
+    /** Alias to assign during staging. null means skip tagging entirely. */
+    staging_tag: string | null;
+    /** Alias to use as the prod tag for this dataset. */
+    prod_tag: string;
+}
+
+export const SPECIAL_DATASETS: SpecialDataset[] = [
+    {
+        build_name: "ubergraph_nodes_info",
+        staging_tag: null,
+        prod_tag: "ubergraph_nodes_mapping",
+    },
+];

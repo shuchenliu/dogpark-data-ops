@@ -2,7 +2,7 @@
 import { customAlphabet } from "nanoid";
 import fs from "fs";
 import { addNewBuild, deleteBuilds, sleep, startIndex } from "./utils.js";
-import { ALL_DATASETS } from "./common.js";
+import { ALL_DATASETS, SPECIAL_DATASETS } from "./common.js";
 
 /**
  * Represents the result of a single build operation.
@@ -21,6 +21,24 @@ interface BuildResult {
 }
 
 const DATASETS = ALL_DATASETS;
+
+const SPECIAL_DATASET_BY_BUILD_NAME = new Map(
+    SPECIAL_DATASETS.map((dataset) => [dataset.build_name, dataset]),
+);
+
+const getDatasetNameFromBuildName = (buildName: string): string => {
+    const parts = buildName.split("_");
+    if (parts.length <= 2) {
+        return buildName;
+    }
+
+    return parts.slice(0, -2).join("_");
+};
+
+const resolveSpecialDatasetForBuild = (buildName: string) => {
+    const datasetName = getDatasetNameFromBuildName(buildName);
+    return SPECIAL_DATASET_BY_BUILD_NAME.get(datasetName);
+};
 
 type DeployTarget = "transltr" | "su12" | "itrb-ci";
 
@@ -499,6 +517,23 @@ const releaseStaging = async (
         return;
     }
 
+    const normalBuilds: string[] = [];
+    const specialTagAssignments = new Map<string, string[]>();
+
+    for (const buildName of buildNames) {
+        const special = resolveSpecialDatasetForBuild(buildName);
+        if (!special) {
+            normalBuilds.push(buildName);
+            continue;
+        }
+
+        if (special.staging_tag !== null) {
+            const names = specialTagAssignments.get(special.staging_tag) ?? [];
+            names.push(buildName);
+            specialTagAssignments.set(special.staging_tag, names);
+        }
+    }
+
     if (dryRun) {
         console.log(
             `${dryRunLabel}Would release to target ${deployConfig.target} (${deployConfig.ES_URL})`,
@@ -511,7 +546,12 @@ const releaseStaging = async (
             `${dryRunLabel}Would start indexing for ${buildNames.length} builds`,
         );
         console.log(`${dryRunLabel}Would assign staging tags to:`);
-        buildNames.forEach((name) => console.log(`  ${name}`));
+        for (const buildName of buildNames) {
+            const special = resolveSpecialDatasetForBuild(buildName);
+            const tag = special ? special.staging_tag : STAGING_TAG;
+            const tagLabel = tag ?? "(no tag)";
+            console.log(`  ${buildName} -> ${tagLabel}`);
+        }
     } else {
         console.log(
             `Validated ES cluster_name: ${actualClusterName} for target ${deployConfig.target}`,
@@ -526,9 +566,36 @@ const releaseStaging = async (
         );
         console.log("indexing started");
 
-        // 2. assign tags
+        // 2. assign tags based on dataset policy
         await sleep(10000);
-        await assignStagingTag(buildNames, deployConfig.ES_URL);
+
+        const operations: AliasOperation[] = [];
+
+        if (normalBuilds.length > 0) {
+            operations.push({
+                action: "add",
+                indices: normalBuilds,
+                alias: STAGING_TAG,
+            });
+        }
+
+        for (const [tag, names] of specialTagAssignments.entries()) {
+            if (names.length > 0) {
+                operations.push({
+                    action: "add",
+                    indices: names,
+                    alias: tag,
+                });
+            }
+        }
+
+        if (operations.length > 0) {
+            const aliasResponse = await updateAliases(
+                operations,
+                deployConfig.ES_URL,
+            );
+            await assertAliasesOk(aliasResponse);
+        }
 
         console.log(`staging tags assigned (cluster: ${actualClusterName})`);
     }
@@ -566,6 +633,21 @@ const releaseProd = async (
         throw new Error("No staging indices provided for prod release");
     }
 
+    // Partition into normal and special candidates
+    const normalCandidates = stagingCandidates.filter(
+        (name) => !resolveSpecialDatasetForBuild(name),
+    );
+    const specialCandidates = stagingCandidates.filter((name) =>
+        Boolean(resolveSpecialDatasetForBuild(name)),
+    );
+    // Map each special candidate to its SpecialDataset entry
+    const resolvedSpecial = specialCandidates.map((name) => {
+        const entry = resolveSpecialDatasetForBuild(name);
+        if (!entry)
+            throw new Error(`No special dataset config found for ${name}`);
+        return { name, entry };
+    });
+
     if (dryRun) {
         const prodNames = await getIndexNamesWithAlias(
             PROD_TAG,
@@ -581,11 +663,29 @@ const releaseProd = async (
             `${dryRunLabel}Validated ES cluster_name: ${actualClusterName}`,
         );
         console.log(
-            `${dryRunLabel}Would switch prod alias to ${stagingCandidates.length} staging indices`,
+            `${dryRunLabel}Would switch prod alias to ${normalCandidates.length} staging indices`,
         );
         console.log(`${dryRunLabel}Would promote staging indices:`);
-        stagingCandidates.forEach((name) => console.log(`  ${name}`));
-        console.log(`${dryRunLabel}Current prod indices:`);
+        normalCandidates.forEach((name) => console.log(`  ${name}`));
+        if (resolvedSpecial.length > 0) {
+            console.log(
+                `${dryRunLabel}Would promote special indices (custom prod tags):`,
+            );
+            for (const { name, entry } of resolvedSpecial) {
+                const currentHolders = await getIndexNamesWithAlias(
+                    entry.prod_tag,
+                    deployConfig.ES_URL,
+                );
+                console.log(`  ${name} -> ${entry.prod_tag}`);
+                if (currentHolders.length > 0) {
+                    console.log(`    current holder(s) to be deprecated:`);
+                    currentHolders.forEach((h) => console.log(`      ${h}`));
+                } else {
+                    console.log(`    (no current holder)`);
+                }
+            }
+        }
+        console.log(`${dryRunLabel}Current prod indices (${PROD_TAG}):`);
         prodNames.forEach((name) => console.log(`  ${name}`));
         console.log(
             `${dryRunLabel}Would deprecate current prod indices and clear staging tags`,
@@ -615,8 +715,8 @@ const releaseProd = async (
         await getIndexNamesWithAlias(STAGING_TAG, deployConfig.ES_URL),
     );
 
-    // ensure these are indeed candidates
-    for (const candidate of stagingCandidates) {
+    // ensure normal candidates are indeed staging indices
+    for (const candidate of normalCandidates) {
         if (!stagingNames.has(candidate)) {
             throw new Error(`${candidate} is not a staging index`);
         }
@@ -627,14 +727,46 @@ const releaseProd = async (
         ? await getIndexNamesWithAlias(DEPR_TAG, deployConfig.ES_URL)
         : [];
 
-    // 2. switch prod alias, deprecate old prod, and clear staging in one request
-    // Also mark old deprecated indices for deletion if requested
+    // 2. build alias operations for normal candidates
     const operations: AliasOperation[] = [
-        { action: "add", indices: stagingCandidates, alias: PROD_TAG },
+        { action: "add", indices: normalCandidates, alias: PROD_TAG },
         { action: "remove", indices: prodNames, alias: PROD_TAG },
         { action: "add", indices: prodNames, alias: DEPR_TAG },
-        { action: "remove", indices: stagingCandidates, alias: STAGING_TAG },
+        { action: "remove", indices: normalCandidates, alias: STAGING_TAG },
     ];
+
+    // 2a. handle special candidates: use their prod_tag, deprecate old holder
+    for (const { name, entry } of resolvedSpecial) {
+        const currentProdHolders = await getIndexNamesWithAlias(
+            entry.prod_tag,
+            deployConfig.ES_URL,
+        );
+        operations.push({
+            action: "add",
+            indices: [name],
+            alias: entry.prod_tag,
+        });
+        if (currentProdHolders.length > 0) {
+            operations.push({
+                action: "remove",
+                indices: currentProdHolders,
+                alias: entry.prod_tag,
+            });
+            operations.push({
+                action: "add",
+                indices: currentProdHolders,
+                alias: DEPR_TAG,
+            });
+        }
+        // remove staging_tag if it had one
+        if (entry.staging_tag !== null) {
+            operations.push({
+                action: "remove",
+                indices: [name],
+                alias: entry.staging_tag,
+            });
+        }
+    }
 
     if (markOldDeprForDeletion && oldDeprNames.length > 0) {
         operations.push({

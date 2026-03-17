@@ -29,6 +29,7 @@ type DeployTarget = "transltr" | "su12" | "itrb-ci";
 interface DeployConfig {
     ES_URL: string;
     target: DeployTarget;
+    cluster_name: string;
 }
 
 const DEFAULT_DEPLOY_TARGET: DeployTarget = "transltr";
@@ -37,14 +38,17 @@ const deployConfigs: Record<DeployTarget, DeployConfig> = {
     transltr: {
         ES_URL: "http://localhost:9200/",
         target: "transltr",
+        cluster_name: "transltr-es8",
     },
     su12: {
         ES_URL: "http://localhost:9200/",
         target: "su12",
+        cluster_name: "biothings_es8",
     },
     "itrb-ci": {
         ES_URL: "https://tier1-dogpark.ci.transltr.io/",
         target: "itrb-ci",
+        cluster_name: "es-tier1-cluster",
     },
 };
 
@@ -268,6 +272,42 @@ const readNames = (fileName: string) => {
     return buildNames;
 };
 
+const getEsClusterName = async (esUrl: string): Promise<string | null> => {
+    try {
+        const response = await fetch(esUrl);
+        if (!response.ok) {
+            return null;
+        }
+
+        const payload = (await response.json()) as { cluster_name?: unknown };
+        return typeof payload.cluster_name === "string"
+            ? payload.cluster_name
+            : null;
+    } catch {
+        return null;
+    }
+};
+
+interface DeployClusterValidationResult {
+    ok: boolean;
+    actualClusterName: string | null;
+}
+
+const validateDeployClusterName = async (
+    deployConfig: DeployConfig,
+): Promise<DeployClusterValidationResult> => {
+    const actualClusterName = await getEsClusterName(deployConfig.ES_URL);
+
+    if (!actualClusterName) {
+        return { ok: false, actualClusterName: null };
+    }
+
+    return {
+        ok: actualClusterName === deployConfig.cluster_name,
+        actualClusterName,
+    };
+};
+
 /**
  * Mock version of addNewBuild for dry run testing.
  * Returns immediately with successful responses without making actual requests.
@@ -440,10 +480,30 @@ const releaseStaging = async (
     const buildNames = readNames(fileName);
     const dryRunLabel = dryRun ? "[DRY RUN] " : "";
     const deployConfig = getDeployConfig(deployTarget);
+    const { ok, actualClusterName } =
+        await validateDeployClusterName(deployConfig);
+
+    if (!ok) {
+        console.error(
+            `${dryRunLabel}Aborting staging release due to cluster mismatch.`,
+        );
+        console.error(`${dryRunLabel}Target: ${deployConfig.target}`);
+        console.error(`${dryRunLabel}ES URL: ${deployConfig.ES_URL}`);
+        console.error(
+            `${dryRunLabel}Expected cluster_name: ${deployConfig.cluster_name}`,
+        );
+        console.error(
+            `${dryRunLabel}Actual cluster_name: ${actualClusterName ?? "<unavailable>"}`,
+        );
+        return;
+    }
 
     if (dryRun) {
         console.log(
             `${dryRunLabel}Would release to target ${deployConfig.target} (${deployConfig.ES_URL})`,
+        );
+        console.log(
+            `${dryRunLabel}Validated ES cluster_name: ${actualClusterName}`,
         );
         console.log(
             `${dryRunLabel}Would start indexing for ${buildNames.length} builds`,
@@ -451,6 +511,10 @@ const releaseStaging = async (
         console.log(`${dryRunLabel}Would assign staging tags to:`);
         buildNames.forEach((name) => console.log(`  ${name}`));
     } else {
+        console.log(
+            `Validated ES cluster_name: ${actualClusterName} for target ${deployConfig.target}`,
+        );
+
         // 1. release data
         await startIndex(buildNames, undefined, deployConfig.target);
         console.log("indexing started");
@@ -459,7 +523,7 @@ const releaseStaging = async (
         await sleep(10000);
         await assignStagingTag(buildNames, deployConfig.ES_URL);
 
-        console.log("staging tags assigned");
+        console.log(`staging tags assigned (cluster: ${actualClusterName})`);
     }
 };
 

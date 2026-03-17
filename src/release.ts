@@ -24,6 +24,36 @@ const DATASETS = ALL_DATASETS;
 
 const ES_URL = "http://localhost:9200/";
 
+type DeployTarget = "transltr" | "su12" | "itrb-ci";
+
+interface DeployConfig {
+    ES_URL: string;
+    target: DeployTarget;
+}
+
+const DEFAULT_DEPLOY_TARGET: DeployTarget = "transltr";
+
+const deployConfigs: Record<DeployTarget, DeployConfig> = {
+    transltr: {
+        ES_URL: "http://localhost:9200/",
+        target: "transltr",
+    },
+    su12: {
+        ES_URL: "http://localhost:9200/",
+        target: "su12",
+    },
+    "itrb-ci": {
+        ES_URL: "https://tier1-dogpark.ci.transltr.io/",
+        target: "itrb-ci",
+    },
+};
+
+const isDeployTarget = (value: string): value is DeployTarget =>
+    value in deployConfigs;
+
+const getDeployConfig = (target: DeployTarget): DeployConfig =>
+    deployConfigs[target];
+
 const STAGING_TAG = "dingo_staging";
 const PROD_TAG = "dingo";
 const DEPR_TAG = "dingo_deprecated";
@@ -90,9 +120,10 @@ const buildBulkAliasPayload = (
  */
 const updateAliases = async (
     operations: AliasOperation[],
+    esUrl: string = ES_URL,
 ): Promise<Response> => {
     const payload = buildBulkAliasPayload(operations);
-    return await fetch(`${ES_URL}_aliases`, {
+    return await fetch(`${esUrl}_aliases`, {
         method: "POST",
         headers: {
             "Content-Type": "application/json",
@@ -111,11 +142,12 @@ const assertAliasesOk = async (response: Response) => {
 };
 
 const executeAliasActions =
-    (action: "add" | "remove") => async (names: string[], alias: string) => {
+    (action: "add" | "remove") =>
+    async (names: string[], alias: string, esUrl: string = ES_URL) => {
         const operations: AliasOperation[] = [
             { action, indices: names, alias },
         ];
-        return updateAliases(operations);
+        return updateAliases(operations, esUrl);
     };
 
 const assignAlias = executeAliasActions("add");
@@ -130,8 +162,11 @@ const removeAlias = executeAliasActions("remove");
  * @returns a list of index names associated with the alias
  */
 
-const getIndexNamesWithAlias = async (alias: string): Promise<string[]> => {
-    const res = await fetch(`${ES_URL}_alias/${alias}`);
+const getIndexNamesWithAlias = async (
+    alias: string,
+    esUrl: string = ES_URL,
+): Promise<string[]> => {
+    const res = await fetch(`${esUrl}_alias/${alias}`);
 
     if (res.status === 404) {
         return [];
@@ -146,13 +181,19 @@ const getIndexNamesWithAlias = async (alias: string): Promise<string[]> => {
     return Object.keys(data).sort();
 };
 
-const assignStagingTag = (names: string[]) => assignAlias(names, STAGING_TAG);
-const removeStagingTag = (names: string[]) => removeAlias(names, STAGING_TAG);
-const assignProdTag = (names: string[]) => assignAlias(names, PROD_TAG);
-const removeProdTag = (names: string[]) => removeAlias(names, PROD_TAG);
+const assignStagingTag = (names: string[], esUrl: string = ES_URL) =>
+    assignAlias(names, STAGING_TAG, esUrl);
+const removeStagingTag = (names: string[], esUrl: string = ES_URL) =>
+    removeAlias(names, STAGING_TAG, esUrl);
+const assignProdTag = (names: string[], esUrl: string = ES_URL) =>
+    assignAlias(names, PROD_TAG, esUrl);
+const removeProdTag = (names: string[], esUrl: string = ES_URL) =>
+    removeAlias(names, PROD_TAG, esUrl);
 
-const assignDeprTag = (names: string[]) => assignAlias(names, DEPR_TAG);
-const removeDeprTag = (names: string[]) => removeAlias(names, DEPR_TAG);
+const assignDeprTag = (names: string[], esUrl: string = ES_URL) =>
+    assignAlias(names, DEPR_TAG, esUrl);
+const removeDeprTag = (names: string[], esUrl: string = ES_URL) =>
+    removeAlias(names, DEPR_TAG, esUrl);
 
 const deleteIndices = async (
     indexNames: string[],
@@ -391,11 +432,19 @@ const startAddNewBuilds = async (
     return results;
 };
 
-const releaseStaging = async (fileName: string, dryRun: boolean = false) => {
+const releaseStaging = async (
+    fileName: string,
+    dryRun: boolean = false,
+    deployTarget: DeployTarget = DEFAULT_DEPLOY_TARGET,
+) => {
     const buildNames = readNames(fileName);
     const dryRunLabel = dryRun ? "[DRY RUN] " : "";
+    const deployConfig = getDeployConfig(deployTarget);
 
     if (dryRun) {
+        console.log(
+            `${dryRunLabel}Would release to target ${deployConfig.target} (${deployConfig.ES_URL})`,
+        );
         console.log(
             `${dryRunLabel}Would start indexing for ${buildNames.length} builds`,
         );
@@ -403,12 +452,12 @@ const releaseStaging = async (fileName: string, dryRun: boolean = false) => {
         buildNames.forEach((name) => console.log(`  ${name}`));
     } else {
         // 1. release data
-        await startIndex(buildNames);
+        await startIndex(buildNames, undefined, deployConfig.target);
         console.log("indexing started");
 
         // 2. assign tags
         await sleep(10000);
-        await assignStagingTag(buildNames);
+        await assignStagingTag(buildNames, deployConfig.ES_URL);
 
         console.log("staging tags assigned");
     }
@@ -650,6 +699,21 @@ const removeStoredBuilds = async (
         args.includes("--skip-mark-old-depr-for-deletion") ||
         args.includes("--skip-mark-old-depr");
 
+    // Parse deploy target (default: transltr)
+    let deployTarget: DeployTarget = DEFAULT_DEPLOY_TARGET;
+    const deployTargetIndex = args.findIndex(
+        (arg) => arg === "--deploy-target" || arg === "--target",
+    );
+    if (deployTargetIndex !== -1 && deployTargetIndex + 1 < args.length) {
+        const rawTarget = args[deployTargetIndex + 1];
+        if (!isDeployTarget(rawTarget)) {
+            throw new Error(
+                `Invalid deploy target: ${rawTarget}. Must be one of: ${Object.keys(deployConfigs).join(", ")}`,
+            );
+        }
+        deployTarget = rawTarget;
+    }
+
     // Parse duration argument (in seconds, default 3 minutes = 180 seconds)
     let durationSeconds = 180;
     const durationIndex = args.findIndex(
@@ -731,7 +795,7 @@ const removeStoredBuilds = async (
             execute: async () => {
                 console.log("Starting staging release process...");
                 const targetFile = stagingFileName || "latest-builds.txt";
-                await releaseStaging(targetFile, hasDryRun);
+                await releaseStaging(targetFile, hasDryRun, deployTarget);
             },
         },
         {
@@ -777,6 +841,9 @@ const removeStoredBuilds = async (
         console.log("\nStaging options:");
         console.log(
             "  -rs, --release-staging [filename] Release builds to staging (defaults to latest-builds.txt)",
+        );
+        console.log(
+            "  --deploy-target, --target <transltr|su12|itrb-ci>  Deploy target for staging release (default: transltr)",
         );
         console.log("\nProd options:");
         console.log(

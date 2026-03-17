@@ -2,8 +2,7 @@ import { UploadMode } from "./types.js";
 
 const BASE_URL = "http://localhost:19180/";
 
-// const INDEX_TARGET_LOCATION = "itrb-ci"
-const INDEX_TARGET_LOCATION = "transltr";
+const DEFAULT_INDEX_TARGET_LOCATION = "transltr";
 
 function deleteOldBuild(name: string): Promise<Response> {
     return fetch(`${BASE_URL}build/${name}`, {
@@ -49,8 +48,7 @@ interface IndexPyalod {
 function makeIndexRequest(
     name: string,
     mode?: string,
-    // indexerEnv = "su12",
-    indexerEnv = INDEX_TARGET_LOCATION,
+    indexerEnv = DEFAULT_INDEX_TARGET_LOCATION,
 ): Promise<Response> {
     const url = `${BASE_URL}index`;
 
@@ -81,7 +79,7 @@ function makeReIndexRequest(name: string): Promise<Response> {
             build_name: name.toLowerCase(),
             index_name: name.toLowerCase(),
             mode: "purge",
-            indexer_env: INDEX_TARGET_LOCATION,
+            indexer_env: DEFAULT_INDEX_TARGET_LOCATION,
         }),
     });
 }

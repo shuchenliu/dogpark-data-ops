@@ -1,9 +1,12 @@
 import fs from "fs";
 import { addNewBuild, sleep } from "../utils.js";
-import { ALL_DATASETS } from "../common.js";
+import { ALL_DATASETS, SPECIAL_DATASETS } from "../common.js";
 import { getBuildName, getTimeString } from "./common.js";
 
-const DATASETS = ALL_DATASETS;
+const DATASETS = [
+    ...ALL_DATASETS,
+    ...SPECIAL_DATASETS.map((d) => d.build_name),
+];
 
 interface BuildResult {
     dataset: string;

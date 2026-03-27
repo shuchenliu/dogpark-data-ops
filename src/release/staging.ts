@@ -19,6 +19,7 @@ export const releaseStaging = async (
     dryRun = false,
     deployTarget: DeployTarget = DEFAULT_DEPLOY_TARGET,
     purgeMode = false,
+    tagsOnly = false,
 ) => {
     const buildNames = readNames(fileName);
     const dryRunLabel = dryRun ? "[DRY RUN] " : "";
@@ -26,6 +27,7 @@ export const releaseStaging = async (
     const { ok, actualClusterName } =
         await validateDeployClusterName(deployConfig);
     const purgeModeLabel = purgeMode ? "ENABLED" : "DISABLED";
+    const tagsOnlyLabel = tagsOnly ? "ENABLED" : "DISABLED";
 
     if (!ok) {
         console.error(
@@ -64,12 +66,17 @@ export const releaseStaging = async (
             `${dryRunLabel}Would release to target ${deployConfig.target} (${deployConfig.ES_URL})`,
         );
         console.log(`${dryRunLabel}Purge mode: ${purgeModeLabel}`);
+        console.log(`${dryRunLabel}Tags-only mode: ${tagsOnlyLabel}`);
         console.log(
             `${dryRunLabel}Validated ES cluster_name: ${actualClusterName}`,
         );
-        console.log(
-            `${dryRunLabel}Would start indexing for ${buildNames.length} builds`,
-        );
+        if (tagsOnly) {
+            console.log(`${dryRunLabel}Would SKIP indexing (tags-only mode)`);
+        } else {
+            console.log(
+                `${dryRunLabel}Would start indexing for ${buildNames.length} builds`,
+            );
+        }
         console.log(`${dryRunLabel}Would assign staging tags to:`);
         for (const buildName of buildNames) {
             const special = resolveSpecialDatasetForBuild(buildName);
@@ -82,18 +89,24 @@ export const releaseStaging = async (
             `Validated ES cluster_name: ${actualClusterName} for target ${deployConfig.target}`,
         );
         console.log(`Purge mode: ${purgeModeLabel}`);
+        console.log(`Tags-only mode: ${tagsOnlyLabel}`);
 
-        // 1. release data
-        await startIndex(
-            buildNames,
-            purgeMode ? "purge" : undefined,
-            deployConfig.target,
-        );
-        console.log("indexing started");
+        if (!tagsOnly) {
+            // 1. release data
+            await startIndex(
+                buildNames,
+                purgeMode ? "purge" : undefined,
+                deployConfig.target,
+            );
+            console.log("indexing started");
 
-        // 2. assign tags based on dataset policy
-        await sleep(10000);
+            // 2. wait before assigning tags
+            await sleep(10000);
+        } else {
+            console.log("Skipping indexing (tags-only mode)");
+        }
 
+        // assign tags based on dataset policy
         const operations: AliasOperation[] = [];
 
         if (normalBuilds.length > 0) {

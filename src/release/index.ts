@@ -30,6 +30,8 @@ import { removeStoredBuilds } from "./remove-builds.js";
         args.includes("--skip-mark-old-depr");
     const hasStagingPurgeMode =
         args.includes("--purge") || args.includes("--purge-mode");
+    const hasStagingTagsOnly =
+        args.includes("--tags-only") || args.includes("--skip-indexing");
 
     // Parse deploy target (default: transltr)
     let deployTarget: DeployTarget = DEFAULT_DEPLOY_TARGET;
@@ -132,6 +134,7 @@ import { removeStoredBuilds } from "./remove-builds.js";
                     hasDryRun,
                     deployTarget,
                     hasStagingPurgeMode,
+                    hasStagingTagsOnly,
                 );
             },
         },
@@ -185,6 +188,9 @@ import { removeStoredBuilds } from "./remove-builds.js";
         );
         console.log(
             "  --purge, --purge-mode       Enable purge mode when starting staging index jobs (default: disabled)",
+        );
+        console.log(
+            "  --tags-only, --skip-indexing Skip indexing, only assign staging tags",
         );
         console.log("\nProd options:");
         console.log(

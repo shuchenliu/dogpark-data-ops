@@ -1,17 +1,34 @@
 import { UploadMode } from "./types.js";
 
-const BASE_URL = "http://localhost:19180/";
+export const HUB_URL = "http://localhost:19180/";
 
 const DEFAULT_INDEX_TARGET_LOCATION = "transltr";
 
+export const pingHub = async (): Promise<{ ok: boolean; error?: string }> => {
+    try {
+        const response = await fetch(HUB_URL, {
+            signal: AbortSignal.timeout(10_000),
+        });
+        if (!response.ok) {
+            return { ok: false, error: `HTTP ${response.status}` };
+        }
+        return { ok: true };
+    } catch (err) {
+        return {
+            ok: false,
+            error: err instanceof Error ? err.message : String(err),
+        };
+    }
+};
+
 function deleteOldBuild(name: string): Promise<Response> {
-    return fetch(`${BASE_URL}build/${name}`, {
+    return fetch(`${HUB_URL}build/${name}`, {
         method: "DELETE",
     });
 }
 
 function addNewBuildConfRequest(name: string): Promise<Response> {
-    return fetch(`${BASE_URL}buildconf`, {
+    return fetch(`${HUB_URL}buildconf`, {
         method: "POST",
         body: JSON.stringify({
             name,
@@ -29,7 +46,7 @@ function addNewBuildRequest(name: string): Promise<Response> {
     // cohd_20260205_dasr1s => cohd, used to locate build config
     const buildConfName = name.split("_").slice(0, -2).join("_");
 
-    return fetch(`${BASE_URL}build/${buildConfName}/new`, {
+    return fetch(`${HUB_URL}build/${buildConfName}/new`, {
         method: "PUT",
         body: JSON.stringify({
             target_name: name,
@@ -50,7 +67,7 @@ function makeIndexRequest(
     mode?: string,
     indexerEnv = DEFAULT_INDEX_TARGET_LOCATION,
 ): Promise<Response> {
-    const url = `${BASE_URL}index`;
+    const url = `${HUB_URL}index`;
 
     const payload: IndexPyalod = {
         build_name: name,
@@ -72,7 +89,7 @@ function makeIndexRequest(
 }
 
 function makeReIndexRequest(name: string): Promise<Response> {
-    const url = `${BASE_URL}index`;
+    const url = `${HUB_URL}index`;
     return fetch(url, {
         method: "PUT",
         body: JSON.stringify({
@@ -89,7 +106,7 @@ function makeUploadRequest(
     side: "nodes" | "edges",
 ): Promise<Response> {
     return fetch(
-        `${BASE_URL}source/${name}.${name.toLowerCase()}_${side}/upload`,
+        `${HUB_URL}source/${name}.${name.toLowerCase()}_${side}/upload`,
         {
             method: "PUT",
         },
@@ -97,7 +114,7 @@ function makeUploadRequest(
 }
 
 function makeDumpRequest(name: string, force = true): Promise<Response> {
-    return fetch(`${BASE_URL}source/${name}/dump`, {
+    return fetch(`${HUB_URL}source/${name}/dump`, {
         method: "PUT",
         body: JSON.stringify({
             force,

@@ -1,4 +1,4 @@
-import { sleep, startIndex } from "../utils.js";
+import { sleep, startIndex, pingHub, HUB_URL } from "../utils.js";
 import {
     type AliasOperation,
     type DeployTarget,
@@ -36,6 +36,24 @@ export const releaseStaging = async (
         await validateDeployClusterName(deployConfig);
     const purgeModeLabel = purgeMode ? "ENABLED" : "DISABLED";
     const tagsOnlyLabel = tagsOnly ? "ENABLED" : "DISABLED";
+
+    // Ping hub before proceeding (only needed when indexing)
+    if (!tagsOnly) {
+        const hubPing = await pingHub();
+        if (!hubPing.ok) {
+            if (dryRun) {
+                console.warn(
+                    `\x1b[31m${dryRunLabel}Warning: Hub unreachable at ${HUB_URL} (${hubPing.error})\x1b[0m`,
+                );
+            } else {
+                throw new Error(
+                    `\x1b[31mHub unreachable at ${HUB_URL} (${hubPing.error}). Aborting staging release.\x1b[0m`,
+                );
+            }
+        } else {
+            console.log(`${dryRunLabel}Hub reachable at ${HUB_URL}`);
+        }
+    }
 
     // Apply batch slicing
     let buildNames: string[];

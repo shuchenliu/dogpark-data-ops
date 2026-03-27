@@ -1,4 +1,5 @@
 import fs from "fs";
+import { pingHub, HUB_URL } from "../utils.js";
 import {
     type AliasOperation,
     type DeployTarget,
@@ -27,6 +28,22 @@ export const releaseProd = async (
     const deployConfig = getDeployConfig(deployTarget);
     const { ok, actualClusterName } =
         await validateDeployClusterName(deployConfig);
+
+    // Ping hub before proceeding
+    const hubPing = await pingHub();
+    if (!hubPing.ok) {
+        if (dryRun) {
+            console.warn(
+                `\x1b[31m${dryRunLabel}Warning: Hub unreachable at ${HUB_URL} (${hubPing.error})\x1b[0m`,
+            );
+        } else {
+            throw new Error(
+                `\x1b[31mHub unreachable at ${HUB_URL} (${hubPing.error}). Aborting prod release.\x1b[0m`,
+            );
+        }
+    } else {
+        console.log(`${dryRunLabel}Hub reachable at ${HUB_URL}`);
+    }
 
     if (!ok) {
         console.error(

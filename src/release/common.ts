@@ -46,7 +46,7 @@ export const deployConfigs: Record<DeployTarget, DeployConfig> = {
         cluster_name: "biothings_es8",
     },
     "itrb-ci": {
-        ES_URL: "https://tier1-dogpark.ci.transltr.io/",
+        ES_URL: "http://tier1-dogpark.ci.transltr.io:9200/",
         target: "itrb-ci",
         cluster_name: "es-tier1-cluster",
     },

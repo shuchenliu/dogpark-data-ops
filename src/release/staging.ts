@@ -14,20 +14,48 @@ import {
     validateDeployClusterName,
 } from "./common.js";
 
+export interface StagingBatchConfig {
+    /** 1-indexed batch number */
+    batchNumber: number;
+    /** Total number of batches to split builds into (default 5) */
+    totalBatches: number;
+}
+
 export const releaseStaging = async (
     fileName: string,
     dryRun = false,
     deployTarget: DeployTarget = DEFAULT_DEPLOY_TARGET,
     purgeMode = false,
     tagsOnly = false,
+    batch?: StagingBatchConfig,
 ) => {
-    const buildNames = readNames(fileName);
+    const allBuildNames = readNames(fileName);
     const dryRunLabel = dryRun ? "[DRY RUN] " : "";
     const deployConfig = getDeployConfig(deployTarget);
     const { ok, actualClusterName } =
         await validateDeployClusterName(deployConfig);
     const purgeModeLabel = purgeMode ? "ENABLED" : "DISABLED";
     const tagsOnlyLabel = tagsOnly ? "ENABLED" : "DISABLED";
+
+    // Apply batch slicing
+    let buildNames: string[];
+    let batchLabel: string;
+    if (batch) {
+        const { batchNumber, totalBatches } = batch;
+        if (batchNumber < 1 || batchNumber > totalBatches) {
+            throw new Error(
+                `Invalid batch number ${batchNumber}: must be between 1 and ${totalBatches}`,
+            );
+        }
+        const chunkSize = Math.ceil(allBuildNames.length / totalBatches);
+        const start = (batchNumber - 1) * chunkSize;
+        const end = start + chunkSize;
+        buildNames = allBuildNames.slice(start, end);
+        batchLabel = `batch ${batchNumber}/${totalBatches} (${buildNames.length} builds in this batch, ${allBuildNames.length} total)`;
+    } else {
+        buildNames = allBuildNames;
+        batchLabel = "DISABLED";
+    }
 
     if (!ok) {
         console.error(
@@ -67,6 +95,7 @@ export const releaseStaging = async (
         );
         console.log(`${dryRunLabel}Purge mode: ${purgeModeLabel}`);
         console.log(`${dryRunLabel}Tags-only mode: ${tagsOnlyLabel}`);
+        console.log(`${dryRunLabel}Batch mode: ${batchLabel}`);
         console.log(
             `${dryRunLabel}Validated ES cluster_name: ${actualClusterName}`,
         );
@@ -90,6 +119,7 @@ export const releaseStaging = async (
         );
         console.log(`Purge mode: ${purgeModeLabel}`);
         console.log(`Tags-only mode: ${tagsOnlyLabel}`);
+        console.log(`Batch mode: ${batchLabel}`);
 
         if (!tagsOnly) {
             // 1. release data

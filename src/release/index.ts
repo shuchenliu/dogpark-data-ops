@@ -5,7 +5,7 @@ import {
     isDeployTarget,
 } from "./common.js";
 import { DATASETS, startAddNewBuilds } from "./build.js";
-import { releaseStaging } from "./staging.js";
+import { type StagingBatchConfig, releaseStaging } from "./staging.js";
 import { releaseProd } from "./prod.js";
 import { removeIndicesWithDeleteTag } from "./delete.js";
 import { removeStoredBuilds } from "./remove-builds.js";
@@ -32,6 +32,33 @@ import { removeStoredBuilds } from "./remove-builds.js";
         args.includes("--purge") || args.includes("--purge-mode");
     const hasStagingTagsOnly =
         args.includes("--tags-only") || args.includes("--skip-indexing");
+
+    // Parse batch mode for staging
+    let stagingBatch: StagingBatchConfig | undefined;
+    const batchIndex = args.findIndex((arg) => arg === "--batch");
+    if (batchIndex !== -1 && batchIndex + 1 < args.length) {
+        const batchNumber = parseInt(args[batchIndex + 1], 10);
+        if (isNaN(batchNumber) || batchNumber < 1) {
+            throw new Error(`Invalid batch number: ${args[batchIndex + 1]}`);
+        }
+        let totalBatches = 5;
+        const batchesIndex = args.findIndex((arg) => arg === "--batches");
+        if (batchesIndex !== -1 && batchesIndex + 1 < args.length) {
+            const parsed = parseInt(args[batchesIndex + 1], 10);
+            if (isNaN(parsed) || parsed < 1) {
+                throw new Error(
+                    `Invalid total batches: ${args[batchesIndex + 1]}`,
+                );
+            }
+            totalBatches = parsed;
+        }
+        if (batchNumber > totalBatches) {
+            throw new Error(
+                `Batch number ${batchNumber} exceeds total batches ${totalBatches}`,
+            );
+        }
+        stagingBatch = { batchNumber, totalBatches };
+    }
 
     // Parse deploy target (default: transltr)
     let deployTarget: DeployTarget = DEFAULT_DEPLOY_TARGET;
@@ -135,6 +162,7 @@ import { removeStoredBuilds } from "./remove-builds.js";
                     deployTarget,
                     hasStagingPurgeMode,
                     hasStagingTagsOnly,
+                    stagingBatch,
                 );
             },
         },
@@ -191,6 +219,12 @@ import { removeStoredBuilds } from "./remove-builds.js";
         );
         console.log(
             "  --tags-only, --skip-indexing Skip indexing, only assign staging tags",
+        );
+        console.log(
+            "  --batch <number>            Process only the m-th batch of builds (1-indexed)",
+        );
+        console.log(
+            "  --batches <n>               Total number of batches to split builds into (default: 5, requires --batch)",
         );
         console.log("\nProd options:");
         console.log(

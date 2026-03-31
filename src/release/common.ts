@@ -49,7 +49,7 @@ export const deployConfigs: Record<DeployTarget, DeployConfig> = {
     },
     "itrb-ci": {
         host: "tier1-dogpark.ci.transltr.io:9200",
-        ES_URL: "http://localhost:9200",
+        ES_URL: "http://localhost:9200/",
         target: "itrb-ci",
         cluster_name: "es-tier1-cluster",
     },

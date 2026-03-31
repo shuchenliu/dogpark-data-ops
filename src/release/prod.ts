@@ -84,9 +84,14 @@ export const releaseProd = async (
         const prodNames = await getIndexNamesWithAlias(
             PROD_TAG,
             deployConfig.ES_URL,
+            deployConfig.host,
         );
         const oldDeprNames = markOldDeprForDeletion
-            ? await getIndexNamesWithAlias(DEPR_TAG, deployConfig.ES_URL)
+            ? await getIndexNamesWithAlias(
+                  DEPR_TAG,
+                  deployConfig.ES_URL,
+                  deployConfig.host,
+              )
             : [];
         console.log(
             `${dryRunLabel}Would run prod release on ${deployConfig.target} (${deployConfig.ES_URL})`,
@@ -107,6 +112,7 @@ export const releaseProd = async (
                 const currentHolders = await getIndexNamesWithAlias(
                     entry.prod_tag,
                     deployConfig.ES_URL,
+                    deployConfig.host,
                 );
                 console.log(`  ${name} -> ${entry.prod_tag}`);
                 if (currentHolders.length > 0) {
@@ -141,10 +147,15 @@ export const releaseProd = async (
     const prodNames = await getIndexNamesWithAlias(
         PROD_TAG,
         deployConfig.ES_URL,
+        deployConfig.host,
     );
 
     const stagingNames = new Set<string>(
-        await getIndexNamesWithAlias(STAGING_TAG, deployConfig.ES_URL),
+        await getIndexNamesWithAlias(
+            STAGING_TAG,
+            deployConfig.ES_URL,
+            deployConfig.host,
+        ),
     );
 
     // ensure normal candidates are indeed staging indices
@@ -156,7 +167,11 @@ export const releaseProd = async (
 
     // 1.5. get old deprecated indices if we need to mark them for deletion
     const oldDeprNames = markOldDeprForDeletion
-        ? await getIndexNamesWithAlias(DEPR_TAG, deployConfig.ES_URL)
+        ? await getIndexNamesWithAlias(
+              DEPR_TAG,
+              deployConfig.ES_URL,
+              deployConfig.host,
+          )
         : [];
 
     // 2. build alias operations for normal candidates
@@ -172,6 +187,7 @@ export const releaseProd = async (
         const currentProdHolders = await getIndexNamesWithAlias(
             entry.prod_tag,
             deployConfig.ES_URL,
+            deployConfig.host,
         );
         operations.push({
             action: "add",
@@ -211,7 +227,11 @@ export const releaseProd = async (
         );
     }
 
-    const aliasResponse = await updateAliases(operations, deployConfig.ES_URL);
+    const aliasResponse = await updateAliases(
+        operations,
+        deployConfig.ES_URL,
+        deployConfig.host,
+    );
 
     await assertAliasesOk(aliasResponse);
 

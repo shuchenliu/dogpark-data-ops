@@ -19,7 +19,6 @@ export const ALL_DATASETS = [
     "hpoa",
     "icees",
     "intact",
-    // "ncbi_gene",
     "panther",
     "pathbank",
     "semmeddb",
@@ -29,6 +28,8 @@ export const ALL_DATASETS = [
     "ttd",
     "ubergraph",
 ];
+
+export const DUMP_ONLY = ["ncbi_gene", "tier0_kg"];
 
 export interface SpecialDataset {
     build_name: string;

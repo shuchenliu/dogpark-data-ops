@@ -4,8 +4,6 @@ import {
     type DeployTarget,
     DEFAULT_DEPLOY_TARGET,
     STAGING_TAG,
-    assignAlias,
-    assignStagingTag,
     getDeployConfig,
     readNames,
     resolveSpecialDatasetForBuild,
@@ -179,6 +177,7 @@ export const releaseStaging = async (
             const aliasResponse = await updateAliases(
                 operations,
                 deployConfig.ES_URL,
+                deployConfig.host,
             );
             await assertAliasesOk(aliasResponse);
         }

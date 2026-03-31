@@ -1,5 +1,6 @@
 import { customAlphabet } from "nanoid";
 import fs from "fs";
+import http from "http";
 import { SPECIAL_DATASETS } from "../common.js";
 
 // --- Special dataset resolution ---
@@ -30,6 +31,7 @@ export interface DeployConfig {
     ES_URL: string;
     target: DeployTarget;
     cluster_name: string;
+    host?: string; // Only for "itrb-ci" to specify the header
 }
 
 export const DEFAULT_DEPLOY_TARGET: DeployTarget = "transltr";
@@ -46,7 +48,8 @@ export const deployConfigs: Record<DeployTarget, DeployConfig> = {
         cluster_name: "biothings_es8",
     },
     "itrb-ci": {
-        ES_URL: "http://tier1-dogpark.ci.transltr.io:9200/",
+        host: "tier1-dogpark.ci.transltr.io:9200",
+        ES_URL: "http://localhost:9200",
         target: "itrb-ci",
         cluster_name: "es-tier1-cluster",
     },
@@ -57,6 +60,72 @@ export const isDeployTarget = (value: string): value is DeployTarget =>
 
 export const getDeployConfig = (target: DeployTarget): DeployConfig =>
     deployConfigs[target];
+
+/**
+ * Wrapper around fetch that optionally sets the Host header.
+ * Uses http.request when a host override is needed because Node.js fetch (undici)
+ * silently strips the Host header as a forbidden request header per the Fetch spec.
+ */
+const esFetch = (
+    url: string,
+    init?: RequestInit,
+    host?: string,
+): Promise<Response> => {
+    if (!host) return fetch(url, init);
+
+    return new Promise((resolve, reject) => {
+        const parsed = new URL(url);
+        const reqHeaders: Record<string, string> = { Host: host };
+
+        // Forward headers from init
+        if (init?.headers) {
+            const entries =
+                init.headers instanceof Headers
+                    ? [...init.headers.entries()]
+                    : Object.entries(init.headers as Record<string, string>);
+            for (const [k, v] of entries) {
+                reqHeaders[k] = v;
+            }
+        }
+
+        const req = http.request(
+            {
+                hostname: parsed.hostname,
+                port: parsed.port || 80,
+                path: parsed.pathname + parsed.search,
+                method: init?.method ?? "GET",
+                headers: reqHeaders,
+            },
+            (res) => {
+                const chunks: Buffer[] = [];
+                res.on("data", (chunk: Buffer) => chunks.push(chunk));
+                res.on("end", () => {
+                    const body = Buffer.concat(chunks).toString("utf8");
+                    const status = res.statusCode ?? 500;
+                    resolve(
+                        new Response(body, {
+                            status,
+                            statusText: res.statusMessage,
+                            headers: res.headers as Record<string, string>,
+                        }),
+                    );
+                });
+            },
+        );
+
+        req.on("error", reject);
+
+        if (init?.body) {
+            req.write(
+                typeof init.body === "string"
+                    ? init.body
+                    : JSON.stringify(init.body),
+            );
+        }
+
+        req.end();
+    });
+};
 
 // --- Tags ---
 
@@ -121,15 +190,20 @@ const buildBulkAliasPayload = (
 export const updateAliases = async (
     operations: AliasOperation[],
     esUrl: string,
+    hostHeader?: string,
 ): Promise<Response> => {
     const payload = buildBulkAliasPayload(operations);
-    return await fetch(`${esUrl}_aliases`, {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json",
+    return await esFetch(
+        `${esUrl}_aliases`,
+        {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify(payload),
         },
-        body: JSON.stringify(payload),
-    });
+        hostHeader,
+    );
 };
 
 export const assertAliasesOk = async (response: Response) => {
@@ -143,11 +217,16 @@ export const assertAliasesOk = async (response: Response) => {
 
 const executeAliasActions =
     (action: "add" | "remove") =>
-    async (names: string[], alias: string, esUrl: string) => {
+    async (
+        names: string[],
+        alias: string,
+        esUrl: string,
+        hostHeader?: string,
+    ) => {
         const operations: AliasOperation[] = [
             { action, indices: names, alias },
         ];
-        return updateAliases(operations, esUrl);
+        return updateAliases(operations, esUrl, hostHeader);
     };
 
 export const assignAlias = executeAliasActions("add");
@@ -156,8 +235,9 @@ export const removeAlias = executeAliasActions("remove");
 export const getIndexNamesWithAlias = async (
     alias: string,
     esUrl: string,
+    hostHeader?: string,
 ): Promise<string[]> => {
-    const res = await fetch(`${esUrl}_alias/${alias}`);
+    const res = await esFetch(`${esUrl}_alias/${alias}`, undefined, hostHeader);
 
     if (res.status === 404) {
         return [];
@@ -172,28 +252,49 @@ export const getIndexNamesWithAlias = async (
     return Object.keys(data).sort();
 };
 
-export const assignStagingTag = (names: string[], esUrl: string) =>
-    assignAlias(names, STAGING_TAG, esUrl);
-export const removeStagingTag = (names: string[], esUrl: string) =>
-    removeAlias(names, STAGING_TAG, esUrl);
-export const assignProdTag = (names: string[], esUrl: string) =>
-    assignAlias(names, PROD_TAG, esUrl);
-export const removeProdTag = (names: string[], esUrl: string) =>
-    removeAlias(names, PROD_TAG, esUrl);
+export const assignStagingTag = (
+    names: string[],
+    esUrl: string,
+    hostHeader?: string,
+) => assignAlias(names, STAGING_TAG, esUrl, hostHeader);
+export const removeStagingTag = (
+    names: string[],
+    esUrl: string,
+    hostHeader?: string,
+) => removeAlias(names, STAGING_TAG, esUrl, hostHeader);
+export const assignProdTag = (
+    names: string[],
+    esUrl: string,
+    hostHeader?: string,
+) => assignAlias(names, PROD_TAG, esUrl, hostHeader);
+export const removeProdTag = (
+    names: string[],
+    esUrl: string,
+    hostHeader?: string,
+) => removeAlias(names, PROD_TAG, esUrl, hostHeader);
 
-export const assignDeprTag = (names: string[], esUrl: string) =>
-    assignAlias(names, DEPR_TAG, esUrl);
-export const removeDeprTag = (names: string[], esUrl: string) =>
-    removeAlias(names, DEPR_TAG, esUrl);
+export const assignDeprTag = (
+    names: string[],
+    esUrl: string,
+    hostHeader?: string,
+) => assignAlias(names, DEPR_TAG, esUrl, hostHeader);
+export const removeDeprTag = (
+    names: string[],
+    esUrl: string,
+    hostHeader?: string,
+) => removeAlias(names, DEPR_TAG, esUrl, hostHeader);
 
 export const deleteIndices = async (
     indexNames: string[],
     esUrl: string,
+    hostHeader?: string,
 ): Promise<DeleteIndicesResponse> => {
     const target = indexNames.map(encodeURIComponent).join(",");
-    const response = await fetch(`${esUrl}${target}`, {
-        method: "DELETE",
-    });
+    const response = await esFetch(
+        `${esUrl}${target}`,
+        { method: "DELETE" },
+        hostHeader,
+    );
 
     if (!response.ok) {
         const text = await response.text();
@@ -246,9 +347,12 @@ export const readNames = (fileName: string) => {
 
 // --- Cluster validation ---
 
-const getEsClusterName = async (esUrl: string): Promise<string | null> => {
+const getEsClusterName = async (
+    esUrl: string,
+    hostHeader?: string,
+): Promise<string | null> => {
     try {
-        const response = await fetch(esUrl);
+        const response = await esFetch(esUrl, undefined, hostHeader);
         if (!response.ok) {
             return null;
         }
@@ -270,7 +374,10 @@ export interface DeployClusterValidationResult {
 export const validateDeployClusterName = async (
     deployConfig: DeployConfig,
 ): Promise<DeployClusterValidationResult> => {
-    const actualClusterName = await getEsClusterName(deployConfig.ES_URL);
+    const actualClusterName = await getEsClusterName(
+        deployConfig.ES_URL,
+        deployConfig.host,
+    );
 
     if (!actualClusterName) {
         return { ok: false, actualClusterName: null };

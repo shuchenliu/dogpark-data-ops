@@ -40,6 +40,7 @@ export const rollBackIndices = async (
     const prodNames = await getIndexNamesWithAlias(
         PROD_TAG,
         deployConfig.ES_URL,
+        deployConfig.host,
     );
     const indexNames = readNames(deprRecordFileName);
 
@@ -52,6 +53,7 @@ export const rollBackIndices = async (
             { action: "add", indices: prodNames, alias: DEPR_TAG },
         ],
         deployConfig.ES_URL,
+        deployConfig.host,
     );
 
     await assertAliasesOk(aliasResponse);

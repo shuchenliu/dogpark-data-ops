@@ -35,6 +35,7 @@ export const removeIndicesWithDeleteTag = async (
     const indexNames = await getIndexNamesWithAlias(
         DEL_TAG,
         deployConfig.ES_URL,
+        deployConfig.host,
     );
 
     if (indexNames.length === 0) {
@@ -64,7 +65,7 @@ export const removeIndicesWithDeleteTag = async (
         return;
     }
 
-    await deleteIndices(indexNames, deployConfig.ES_URL);
+    await deleteIndices(indexNames, deployConfig.ES_URL, deployConfig.host);
 
     console.log(
         `\n✨ Deletion complete: ${indexNames.length} successful, 0 failed`,

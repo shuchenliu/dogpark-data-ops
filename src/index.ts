@@ -1,4 +1,6 @@
 import { reindex, reDump } from "./utils.js";
+import { ALL_DATASETS, DUMP_ONLY, SPECIAL_DATASETS } from "./common.js";
+import assert from "node:assert";
 
 // function reindex(names: string[]) {
 //     const requestPromises: Promise<Response>[] = names.map((name) =>
@@ -22,7 +24,15 @@ function examineResults(
 
 async function main() {
     // `dump` triggers uploading as well. Good for new datasets
-    // const statuses = await reDump(datasets);
+    const special_set = SPECIAL_DATASETS.filter((d) => d.standalone_plugin).map(
+        (d) => d.build_name,
+    );
+    const targets = [...ALL_DATASETS, ...DUMP_ONLY, ...special_set];
+
+    assert(targets.length === 31);
+
+    const statuses = await reDump(targets);
+    console.log(statuses);
     // only need to upload edges by default
     // const statuses = await reUpload(["ttd"], "edge");
     // const statuses = await reUpload(datasets, "node");

@@ -37,6 +37,8 @@ export interface SpecialDataset {
     staging_tag: string | null;
     /** Alias to use as the prod tag for this dataset. */
     prod_tag: string;
+    /** whether we should expect a standalone plugin during dumping phase**/
+    standalone_plugin?: boolean;
 }
 
 export const SPECIAL_DATASETS: SpecialDataset[] = [
@@ -44,6 +46,7 @@ export const SPECIAL_DATASETS: SpecialDataset[] = [
         build_name: "ubergraph_nodes_info",
         staging_tag: null,
         prod_tag: "ubergraph_nodes_mapping",
+        standalone_plugin: true,
     },
     {
         build_name: "ubergraph_nodes",

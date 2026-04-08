@@ -1,12 +1,18 @@
 import { UploadMode } from "./types.js";
+import { isOnPremiseMode } from "./runtime-config.js";
 
-export const HUB_URL = "http://localhost:19180/";
+export const DEFAULT_HUB_URL = "http://localhost:19180/";
+export const ON_PREMISE_HUB_URL = "http://su06:19180/";
 
 const DEFAULT_INDEX_TARGET_LOCATION = "transltr";
 
+export const getHubUrl = () =>
+    isOnPremiseMode() ? ON_PREMISE_HUB_URL : DEFAULT_HUB_URL;
+
 export const pingHub = async (): Promise<{ ok: boolean; error?: string }> => {
+    const hubUrl = getHubUrl();
     try {
-        const response = await fetch(HUB_URL, {
+        const response = await fetch(hubUrl, {
             signal: AbortSignal.timeout(10_000),
         });
         if (!response.ok) {
@@ -24,8 +30,9 @@ export const pingHub = async (): Promise<{ ok: boolean; error?: string }> => {
 export const checkHubSource = async (
     name: string,
 ): Promise<{ exists: boolean; error?: string; status?: number }> => {
+    const hubUrl = getHubUrl();
     try {
-        const response = await fetch(`${HUB_URL}source/${name}`, {
+        const response = await fetch(`${hubUrl}source/${name}`, {
             signal: AbortSignal.timeout(10_000),
         });
 
@@ -51,13 +58,13 @@ export const checkHubSource = async (
 };
 
 function deleteOldBuild(name: string): Promise<Response> {
-    return fetch(`${HUB_URL}build/${name}`, {
+    return fetch(`${getHubUrl()}build/${name}`, {
         method: "DELETE",
     });
 }
 
 function addNewBuildConfRequest(name: string): Promise<Response> {
-    return fetch(`${HUB_URL}buildconf`, {
+    return fetch(`${getHubUrl()}buildconf`, {
         method: "POST",
         body: JSON.stringify({
             name,
@@ -75,7 +82,7 @@ function addNewBuildRequest(name: string): Promise<Response> {
     // cohd_20260205_dasr1s => cohd, used to locate build config
     const buildConfName = name.split("_").slice(0, -2).join("_");
 
-    return fetch(`${HUB_URL}build/${buildConfName}/new`, {
+    return fetch(`${getHubUrl()}build/${buildConfName}/new`, {
         method: "PUT",
         body: JSON.stringify({
             target_name: name,
@@ -96,7 +103,7 @@ function makeIndexRequest(
     mode?: string,
     indexerEnv = DEFAULT_INDEX_TARGET_LOCATION,
 ): Promise<Response> {
-    const url = `${HUB_URL}index`;
+    const url = `${getHubUrl()}index`;
 
     const payload: IndexPyalod = {
         build_name: name,
@@ -118,7 +125,7 @@ function makeIndexRequest(
 }
 
 function makeReIndexRequest(name: string): Promise<Response> {
-    const url = `${HUB_URL}index`;
+    const url = `${getHubUrl()}index`;
     return fetch(url, {
         method: "PUT",
         body: JSON.stringify({
@@ -135,7 +142,7 @@ function makeUploadRequest(
     side: "nodes" | "edges",
 ): Promise<Response> {
     return fetch(
-        `${HUB_URL}source/${name}.${name.toLowerCase()}_${side}/upload`,
+        `${getHubUrl()}source/${name}.${name.toLowerCase()}_${side}/upload`,
         {
             method: "PUT",
         },
@@ -143,7 +150,7 @@ function makeUploadRequest(
 }
 
 function makeDumpRequest(name: string, force = false): Promise<Response> {
-    return fetch(`${HUB_URL}source/${name}/dump`, {
+    return fetch(`${getHubUrl()}source/${name}/dump`, {
         method: "PUT",
         body: JSON.stringify({
             force,

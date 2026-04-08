@@ -1,7 +1,7 @@
 import {
     type DeployTarget,
     DEFAULT_DEPLOY_TARGET,
-    deployConfigs,
+    getActiveDeployConfigs,
     isDeployTarget,
 } from "./common.js";
 import { DATASETS, startAddNewBuilds } from "./build.js";
@@ -9,8 +9,13 @@ import { type StagingBatchConfig, releaseStaging } from "./staging.js";
 import { releaseProd } from "./prod.js";
 import { removeIndicesWithDeleteTag } from "./delete.js";
 import { removeStoredBuilds } from "./remove-builds.js";
-import { checkHubSource, dump, HUB_URL, pingHub } from "../utils.js";
+import { checkHubSource, dump, getHubUrl, pingHub } from "../utils.js";
 import { ALL_DATASETS, DUMP_ONLY, SPECIAL_DATASETS } from "../common.js";
+import {
+    RUNTIME_CONFIG_PATH,
+    isOnPremiseMode,
+    setOnPremiseMode,
+} from "../runtime-config.js";
 
 (async function () {
     const args = process.argv.slice(2);
@@ -18,6 +23,11 @@ import { ALL_DATASETS, DUMP_ONLY, SPECIAL_DATASETS } from "../common.js";
     // Parse flags
     const hasDump = args.includes("--dump");
     const hasForceDump = args.includes("--force");
+    const enableOnPremise = args.includes("--on-premise");
+    const disableOnPremise =
+        args.includes("--off-premise") || args.includes("--local");
+    const showRuntimeConfig =
+        args.includes("--show-config") || args.includes("--show-mode");
     const hasBuild = args.includes("-b") || args.includes("--build");
     const hasRemove = args.includes("-rb") || args.includes("--remove-build");
     const hasReleaseStaging =
@@ -36,6 +46,26 @@ import { ALL_DATASETS, DUMP_ONLY, SPECIAL_DATASETS } from "../common.js";
         args.includes("--purge") || args.includes("--purge-mode");
     const hasStagingTagsOnly =
         args.includes("--tags-only") || args.includes("--skip-indexing");
+
+    if (enableOnPremise && disableOnPremise) {
+        throw new Error(
+            "Cannot set both --on-premise and --off-premise in the same command",
+        );
+    }
+
+    if (enableOnPremise) {
+        setOnPremiseMode(true);
+        console.log(
+            `Persisted runtime mode: on-premise (${RUNTIME_CONFIG_PATH})`,
+        );
+    } else if (disableOnPremise) {
+        setOnPremiseMode(false);
+        console.log(`Persisted runtime mode: local (${RUNTIME_CONFIG_PATH})`);
+    }
+
+    const currentOnPremiseMode = isOnPremiseMode();
+    const currentHubUrl = getHubUrl();
+    const activeDeployConfigs = getActiveDeployConfigs();
 
     // Parse batch mode for staging
     let stagingBatch: StagingBatchConfig | undefined;
@@ -73,7 +103,7 @@ import { ALL_DATASETS, DUMP_ONLY, SPECIAL_DATASETS } from "../common.js";
         const rawTarget = args[deployTargetIndex + 1];
         if (!isDeployTarget(rawTarget)) {
             throw new Error(
-                `Invalid deploy target: ${rawTarget}. Must be one of: ${Object.keys(deployConfigs).join(", ")}`,
+                `Invalid deploy target: ${rawTarget}. Must be one of: ${Object.keys(activeDeployConfigs).join(", ")}`,
             );
         }
         deployTarget = rawTarget;
@@ -157,15 +187,17 @@ import { ALL_DATASETS, DUMP_ONLY, SPECIAL_DATASETS } from "../common.js";
                 if (!hubPing.ok) {
                     if (hasDryRun) {
                         console.warn(
-                            `\x1b[31m${dryRunLabel}Warning: Hub unreachable at ${HUB_URL} (${hubPing.error})\x1b[0m`,
+                            `\x1b[31m${dryRunLabel}Warning: Hub unreachable at ${currentHubUrl} (${hubPing.error})\x1b[0m`,
                         );
                     } else {
                         throw new Error(
-                            `\x1b[31mHub unreachable at ${HUB_URL} (${hubPing.error}). Aborting dump.\x1b[0m`,
+                            `\x1b[31mHub unreachable at ${currentHubUrl} (${hubPing.error}). Aborting dump.\x1b[0m`,
                         );
                     }
                 } else {
-                    console.log(`${dryRunLabel}Hub reachable at ${HUB_URL}`);
+                    console.log(
+                        `${dryRunLabel}Hub reachable at ${currentHubUrl}`,
+                    );
                 }
 
                 if (hasDryRun) {
@@ -268,9 +300,28 @@ import { ALL_DATASETS, DUMP_ONLY, SPECIAL_DATASETS } from "../common.js";
     const action = actions.find((a) => a.check());
     if (action) {
         await action.execute();
+    } else if (showRuntimeConfig || enableOnPremise || disableOnPremise) {
+        console.log(
+            `Current runtime mode: ${currentOnPremiseMode ? "on-premise" : "local"}`,
+        );
+        console.log(`Runtime config file: ${RUNTIME_CONFIG_PATH}`);
+        console.log(`Active hub URL: ${currentHubUrl}`);
+        console.log(
+            `Default deploy target: ${DEFAULT_DEPLOY_TARGET} (${activeDeployConfigs[DEFAULT_DEPLOY_TARGET].ES_URL})`,
+        );
     } else {
         console.log(
             "Usage: npx tsx release.ts [--dump] [-b|--build] [-rb|--remove-build [filename]] [-rs|--release-staging [filename]] [-rp|--release-prod [filename]] [-rdi|--remove-delete-tagged-indices]",
+        );
+        console.log("\nRuntime options:");
+        console.log(
+            "  --on-premise                Persist on-premise mode and use the on-premise hub/deploy config defaults",
+        );
+        console.log(
+            "  --off-premise, --local      Persist local mode and use the local hub/deploy config defaults",
+        );
+        console.log(
+            "  --show-config, --show-mode  Show whether the CLI is currently in on-premise mode",
         );
         console.log("Dump options:");
         console.log(
@@ -295,7 +346,7 @@ import { ALL_DATASETS, DUMP_ONLY, SPECIAL_DATASETS } from "../common.js";
             "  -rs, --release-staging [filename] Release builds to staging (defaults to release-records/builds/live/latest-builds.txt)",
         );
         console.log(
-            "  --deploy-target, --target <transltr|su12|itrb-ci>  Deploy target for staging release (default: transltr)",
+            `  --deploy-target, --target <${Object.keys(activeDeployConfigs).join("|")}>  Deploy target for staging release (default: ${DEFAULT_DEPLOY_TARGET})`,
         );
         console.log(
             "  --purge, --purge-mode       Enable purge mode when starting staging index jobs (default: disabled)",

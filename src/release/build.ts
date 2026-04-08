@@ -1,4 +1,4 @@
-import { addNewBuild, sleep, pingHub, HUB_URL } from "../utils.js";
+import { addNewBuild, getHubUrl, sleep, pingHub } from "../utils.js";
 import { ALL_DATASETS, SPECIAL_DATASETS } from "../common.js";
 import { getBuildName, getTimeString, writeReleaseRecord } from "./common.js";
 
@@ -39,21 +39,22 @@ export const startAddNewBuilds = async (
     dryRun: boolean = false,
 ): Promise<BuildResult[]> => {
     const dryRunLabel = dryRun ? "[DRY RUN] " : "";
+    const hubUrl = getHubUrl();
 
     // Ping hub before proceeding
     const hubPing = await pingHub();
     if (!hubPing.ok) {
         if (dryRun) {
             console.warn(
-                `\x1b[31m${dryRunLabel}Warning: Hub unreachable at ${HUB_URL} (${hubPing.error})\x1b[0m`,
+                `\x1b[31m${dryRunLabel}Warning: Hub unreachable at ${hubUrl} (${hubPing.error})\x1b[0m`,
             );
         } else {
             throw new Error(
-                `\x1b[31mHub unreachable at ${HUB_URL} (${hubPing.error}). Aborting build.\x1b[0m`,
+                `\x1b[31mHub unreachable at ${hubUrl} (${hubPing.error}). Aborting build.\x1b[0m`,
             );
         }
     } else {
-        console.log(`${dryRunLabel}Hub reachable at ${HUB_URL}`);
+        console.log(`${dryRunLabel}Hub reachable at ${hubUrl}`);
     }
 
     const results: BuildResult[] = [];

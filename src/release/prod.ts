@@ -1,4 +1,4 @@
-import { pingHub, HUB_URL } from "../utils.js";
+import { getHubUrl, pingHub } from "../utils.js";
 import {
     type AliasOperation,
     type DeployTarget,
@@ -25,6 +25,7 @@ export const releaseProd = async (
     deployTarget: DeployTarget = DEFAULT_DEPLOY_TARGET,
 ) => {
     const dryRunLabel = dryRun ? "[DRY RUN] " : "";
+    const hubUrl = getHubUrl();
     const deployConfig = getDeployConfig(deployTarget);
     const { ok, actualClusterName } =
         await validateDeployClusterName(deployConfig);
@@ -34,15 +35,15 @@ export const releaseProd = async (
     if (!hubPing.ok) {
         if (dryRun) {
             console.warn(
-                `\x1b[31m${dryRunLabel}Warning: Hub unreachable at ${HUB_URL} (${hubPing.error})\x1b[0m`,
+                `\x1b[31m${dryRunLabel}Warning: Hub unreachable at ${hubUrl} (${hubPing.error})\x1b[0m`,
             );
         } else {
             throw new Error(
-                `\x1b[31mHub unreachable at ${HUB_URL} (${hubPing.error}). Aborting prod release.\x1b[0m`,
+                `\x1b[31mHub unreachable at ${hubUrl} (${hubPing.error}). Aborting prod release.\x1b[0m`,
             );
         }
     } else {
-        console.log(`${dryRunLabel}Hub reachable at ${HUB_URL}`);
+        console.log(`${dryRunLabel}Hub reachable at ${hubUrl}`);
     }
 
     if (!ok) {

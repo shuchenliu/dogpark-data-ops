@@ -4,6 +4,7 @@ import http from "http";
 import path from "path";
 import { fileURLToPath } from "url";
 import { SPECIAL_DATASETS } from "../common.js";
+import { isOnPremiseMode } from "../runtime-config.js";
 
 // --- Special dataset resolution ---
 
@@ -57,11 +58,32 @@ export const deployConfigs: Record<DeployTarget, DeployConfig> = {
     },
 };
 
+export const onPremiseDeployConfigs: Record<DeployTarget, DeployConfig> = {
+    transltr: {
+        ES_URL: "http://transltr.biothings.io:9200/",
+        target: "transltr",
+        cluster_name: "transltr-es8",
+    },
+    su12: {
+        ES_URL: "http://su12:9200/",
+        target: "su12",
+        cluster_name: "biothings_es8",
+    },
+    "itrb-ci": {
+        ES_URL: "http://tier1-dogpark.ci.transltr.io:9200/",
+        target: "itrb-ci",
+        cluster_name: "es-tier1-cluster",
+    },
+};
+
 export const isDeployTarget = (value: string): value is DeployTarget =>
     value in deployConfigs;
 
+export const getActiveDeployConfigs = () =>
+    isOnPremiseMode() ? onPremiseDeployConfigs : deployConfigs;
+
 export const getDeployConfig = (target: DeployTarget): DeployConfig =>
-    deployConfigs[target];
+    getActiveDeployConfigs()[target];
 
 /**
  * Wrapper around fetch that optionally sets the Host header.

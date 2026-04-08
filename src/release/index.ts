@@ -288,11 +288,11 @@ import { ALL_DATASETS, DUMP_ONLY, SPECIAL_DATASETS } from "../common.js";
         );
         console.log("\nRemoval options:");
         console.log(
-            "  -rb, --remove-build [filename] Remove builds from file (defaults to latest-builds.txt)",
+            "  -rb, --remove-build [filename] Remove builds from file (defaults to release-records/builds/live/latest-builds.txt)",
         );
         console.log("\nStaging options:");
         console.log(
-            "  -rs, --release-staging [filename] Release builds to staging (defaults to latest-builds.txt)",
+            "  -rs, --release-staging [filename] Release builds to staging (defaults to release-records/builds/live/latest-builds.txt)",
         );
         console.log(
             "  --deploy-target, --target <transltr|su12|itrb-ci>  Deploy target for staging release (default: transltr)",
@@ -311,7 +311,7 @@ import { ALL_DATASETS, DUMP_ONLY, SPECIAL_DATASETS } from "../common.js";
         );
         console.log("\nProd options:");
         console.log(
-            "  -rp, --release-prod [filename]  Release builds to prod on selected deploy target (defaults to latest-builds.txt)",
+            "  -rp, --release-prod [filename]  Release builds to prod on selected deploy target (defaults to release-records/builds/live/latest-builds.txt)",
         );
         console.log(
             "  --skip-mark-old-depr-for-deletion  Skip marking old deprecated indices with deletion tag",

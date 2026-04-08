@@ -1,4 +1,3 @@
-import fs from "fs";
 import {
     type DeployTarget,
     DEFAULT_DEPLOY_TARGET,
@@ -12,6 +11,7 @@ import {
     readNames,
     updateAliases,
     validateDeployClusterName,
+    writeReleaseRecord,
 } from "./common.js";
 
 export const rollBackIndices = async (
@@ -59,5 +59,9 @@ export const rollBackIndices = async (
     await assertAliasesOk(aliasResponse);
 
     const fileName = getTimeString();
-    fs.writeFileSync(`depr-${fileName}.txt`, prodNames.join("\n"), "utf8");
+    const deprFilePath = writeReleaseRecord(
+        `depr-${fileName}`,
+        prodNames.join("\n"),
+    );
+    console.log(`Recorded deprecated indices to ${deprFilePath}`);
 };

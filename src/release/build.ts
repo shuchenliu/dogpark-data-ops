@@ -1,7 +1,6 @@
-import fs from "fs";
 import { addNewBuild, sleep, pingHub, HUB_URL } from "../utils.js";
 import { ALL_DATASETS, SPECIAL_DATASETS } from "../common.js";
-import { getBuildName, getTimeString } from "./common.js";
+import { getBuildName, getTimeString, writeReleaseRecord } from "./common.js";
 
 const DATASETS = [
     ...ALL_DATASETS,
@@ -143,20 +142,37 @@ export const startAddNewBuilds = async (
         `\n✨ ${dryRunLabel}Build complete: ${successful} successful, ${failed} failed`,
     );
 
-    if (successful > 0) {
+    if (successful > 0 && !dryRun) {
         const successfulBuildNames = results
             .filter((r) => r.success)
             .map((r) => r.buildName);
         const fileName = getTimeString();
-        fs.writeFileSync(
-            "latest-builds.txt",
-            successfulBuildNames.join("\n"),
-            "utf8",
+        const contents = successfulBuildNames.join("\n");
+        const latestBuildsPath = writeReleaseRecord("latest-builds", contents);
+        const timestampedBuildsPath = writeReleaseRecord(fileName, contents);
+        console.log(
+            `Recorded latest builds to ${latestBuildsPath} and ${timestampedBuildsPath}`,
         );
-        fs.writeFileSync(
-            `${fileName}.txt`,
-            successfulBuildNames.join("\n"),
-            "utf8",
+    } else if (successful > 0) {
+        const successfulBuildNames = results
+            .filter((r) => r.success)
+            .map((r) => r.buildName);
+        const fileName = getTimeString();
+        const contents = successfulBuildNames.join("\n");
+        const latestBuildsPath = writeReleaseRecord(
+            "latest-builds",
+            contents,
+            "builds",
+            "dry-run",
+        );
+        const timestampedBuildsPath = writeReleaseRecord(
+            fileName,
+            contents,
+            "builds",
+            "dry-run",
+        );
+        console.log(
+            `${dryRunLabel}Recorded dry-run builds to ${latestBuildsPath} and ${timestampedBuildsPath}`,
         );
     }
 

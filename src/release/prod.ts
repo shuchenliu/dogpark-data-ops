@@ -1,4 +1,3 @@
-import fs from "fs";
 import { pingHub, HUB_URL } from "../utils.js";
 import {
     type AliasOperation,
@@ -16,6 +15,7 @@ import {
     resolveSpecialDatasetForBuild,
     updateAliases,
     validateDeployClusterName,
+    writeReleaseRecord,
 } from "./common.js";
 
 export const releaseProd = async (
@@ -136,9 +136,12 @@ export const releaseProd = async (
         }
         const fileName = getTimeString();
         const deprFileName = `depr-${fileName}-dry-run.txt`;
-        fs.writeFileSync(deprFileName, prodNames.join("\n"), "utf8");
+        const deprFilePath = writeReleaseRecord(
+            deprFileName,
+            prodNames.join("\n"),
+        );
         console.log(
-            `${dryRunLabel}Recorded deprecated indices to ${deprFileName}`,
+            `${dryRunLabel}Recorded deprecated indices to ${deprFilePath}`,
         );
         return;
     }
@@ -237,5 +240,9 @@ export const releaseProd = async (
 
     // 3. store deprecated names for rollback (only after alias update succeeds)
     const fileName = getTimeString();
-    fs.writeFileSync(`depr-${fileName}.txt`, prodNames.join("\n"), "utf8");
+    const deprFilePath = writeReleaseRecord(
+        `depr-${fileName}`,
+        prodNames.join("\n"),
+    );
+    console.log(`Recorded deprecated indices to ${deprFilePath}`);
 };

@@ -1,6 +1,8 @@
 import { customAlphabet } from "nanoid";
 import fs from "fs";
 import http from "http";
+import path from "path";
+import { fileURLToPath } from "url";
 import { SPECIAL_DATASETS } from "../common.js";
 
 // --- Special dataset resolution ---
@@ -331,15 +333,119 @@ export const getBuildName = (name: string) => {
     return `${name}_${getDateString()}_${getRandomString()}`;
 };
 
+const RELEASE_COMMON_FILE = fileURLToPath(import.meta.url);
+export const REPO_ROOT = path.resolve(
+    path.dirname(RELEASE_COMMON_FILE),
+    "../..",
+);
+export const RELEASE_RECORDS_DIR = "release-records";
+
+export type ReleaseRecordKind = "builds" | "deprecations";
+export type ReleaseRecordRunMode = "live" | "dry-run";
+
+const ensureTxtExtension = (fileName: string) =>
+    fileName.endsWith(".txt") ? fileName : `${fileName}.txt`;
+
+const classifyReleaseRecord = (
+    fileName: string,
+): { kind: ReleaseRecordKind; mode: ReleaseRecordRunMode } => {
+    const nameWithExtension = ensureTxtExtension(path.basename(fileName));
+    const kind: ReleaseRecordKind = nameWithExtension.startsWith("depr-")
+        ? "deprecations"
+        : "builds";
+    const mode: ReleaseRecordRunMode = nameWithExtension.includes("-dry-run")
+        ? "dry-run"
+        : "live";
+
+    return { kind, mode };
+};
+
+export const ensureReleaseRecordsDir = (
+    kind: ReleaseRecordKind,
+    mode: ReleaseRecordRunMode,
+) => {
+    fs.mkdirSync(path.join(REPO_ROOT, RELEASE_RECORDS_DIR, kind, mode), {
+        recursive: true,
+    });
+};
+
+export const getReleaseRecordPath = (
+    fileName: string,
+    kind?: ReleaseRecordKind,
+    mode?: ReleaseRecordRunMode,
+) => {
+    const classified = classifyReleaseRecord(fileName);
+    return path.join(
+        REPO_ROOT,
+        RELEASE_RECORDS_DIR,
+        kind ?? classified.kind,
+        mode ?? classified.mode,
+        ensureTxtExtension(path.basename(fileName)),
+    );
+};
+
+export const writeReleaseRecord = (
+    fileName: string,
+    contents: string,
+    kind?: ReleaseRecordKind,
+    mode?: ReleaseRecordRunMode,
+) => {
+    const classified = classifyReleaseRecord(fileName);
+    const targetKind = kind ?? classified.kind;
+    const targetMode = mode ?? classified.mode;
+    ensureReleaseRecordsDir(targetKind, targetMode);
+    const targetPath = getReleaseRecordPath(fileName, targetKind, targetMode);
+    fs.writeFileSync(targetPath, contents, "utf8");
+    return targetPath;
+};
+
+export const resolveReleaseFilePath = (fileName: string) => {
+    if (path.isAbsolute(fileName)) {
+        return fileName;
+    }
+
+    const nameWithExtension = ensureTxtExtension(fileName);
+    const rootFilePath = path.join(REPO_ROOT, fileName);
+    const rootNameWithExtension = path.join(REPO_ROOT, nameWithExtension);
+
+    if (fs.existsSync(fileName)) {
+        return fileName;
+    }
+
+    if (fs.existsSync(nameWithExtension)) {
+        return nameWithExtension;
+    }
+
+    if (fs.existsSync(rootFilePath)) {
+        return rootFilePath;
+    }
+
+    if (fs.existsSync(rootNameWithExtension)) {
+        return rootNameWithExtension;
+    }
+
+    const classified = classifyReleaseRecord(fileName);
+    const candidatePaths = [
+        getReleaseRecordPath(fileName, classified.kind, "live"),
+        getReleaseRecordPath(fileName, classified.kind, "dry-run"),
+    ];
+
+    for (const candidatePath of candidatePaths) {
+        if (fs.existsSync(candidatePath)) {
+            return candidatePath;
+        }
+    }
+
+    return candidatePaths[0];
+};
+
 export const readNames = (fileName: string) => {
-    const nameWithExtension = fileName.endsWith(".txt")
-        ? fileName
-        : `${fileName}.txt`;
-    const data = fs.readFileSync(nameWithExtension, "utf8");
+    const resolvedPath = resolveReleaseFilePath(fileName);
+    const data = fs.readFileSync(resolvedPath, "utf8");
     const buildNames = data.split(/\r?\n/).filter(Boolean);
 
     if (buildNames.length === 0) {
-        throw new Error(`No names retrieved from "${nameWithExtension}"`);
+        throw new Error(`No names retrieved from "${resolvedPath}"`);
     }
 
     return buildNames;

@@ -5,7 +5,7 @@ import { readNames } from "./common.js";
  * Removes builds specified in a file.
  *
  * Reads build names from the provided file and deletes each one.
- * If no filename is provided, defaults to latest-builds.txt.
+ * If no filename is provided, defaults to release-records/builds/live/latest-builds.txt.
  *
  * @param fileName - Path to file containing build names (one per line). Defaults to "latest-builds.txt" if not provided or "latest"
  * @param dryRun - If true, only logs what would happen without making actual requests (default: false)
@@ -15,7 +15,7 @@ export const removeStoredBuilds = async (
     fileName?: string,
     dryRun: boolean = false,
 ): Promise<PromiseSettledResult<Response>[]> => {
-    // Default to latest-builds.txt if no filename provided
+    // Default to the shared latest builds artifact if no filename is provided
     const targetFile =
         !fileName || fileName === "latest" ? "latest-builds.txt" : fileName;
     const dryRunLabel = dryRun ? "[DRY RUN] " : "";

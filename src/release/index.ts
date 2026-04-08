@@ -9,7 +9,7 @@ import { type StagingBatchConfig, releaseStaging } from "./staging.js";
 import { releaseProd } from "./prod.js";
 import { removeIndicesWithDeleteTag } from "./delete.js";
 import { removeStoredBuilds } from "./remove-builds.js";
-import { reDump } from "../utils.js";
+import { dump } from "../utils.js";
 import { ALL_DATASETS, DUMP_ONLY, SPECIAL_DATASETS } from "../common.js";
 
 (async function () {
@@ -17,6 +17,7 @@ import { ALL_DATASETS, DUMP_ONLY, SPECIAL_DATASETS } from "../common.js";
 
     // Parse flags
     const hasDump = args.includes("--dump");
+    const hasForceDump = args.includes("--force");
     const hasBuild = args.includes("-b") || args.includes("--build");
     const hasRemove = args.includes("-rb") || args.includes("--remove-build");
     const hasReleaseStaging =
@@ -150,7 +151,7 @@ import { ALL_DATASETS, DUMP_ONLY, SPECIAL_DATASETS } from "../common.js";
                 console.log(
                     `Starting dump process for ${targets.length} datasets...`,
                 );
-                const statuses = await reDump(targets);
+                const statuses = await dump(targets, hasForceDump);
                 for (let i = 0; i < statuses.length; i++) {
                     const res = statuses[i];
                     if (res.status !== "fulfilled" || !res.value.ok) {
@@ -225,6 +226,9 @@ import { ALL_DATASETS, DUMP_ONLY, SPECIAL_DATASETS } from "../common.js";
         console.log("Dump options:");
         console.log(
             "  --dump                      Trigger dump for all datasets (includes dump-only and standalone plugins)",
+        );
+        console.log(
+            "  --force                     Force dump jobs when used with --dump",
         );
         console.log("\nBuild options:");
         console.log(

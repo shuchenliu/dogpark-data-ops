@@ -113,7 +113,7 @@ function makeUploadRequest(
     );
 }
 
-function makeDumpRequest(name: string, force = true): Promise<Response> {
+function makeDumpRequest(name: string, force = false): Promise<Response> {
     return fetch(`${HUB_URL}source/${name}/dump`, {
         method: "PUT",
         body: JSON.stringify({
@@ -135,7 +135,8 @@ const makeReMethods =
     };
 export const reindex = makeReMethods(makeReIndexRequest);
 export const startIndex = makeReMethods(makeIndexRequest);
-export const reDump = makeReMethods(makeDumpRequest);
+export const dump = makeReMethods(makeDumpRequest);
+export const reDump = (names: string[]) => dump(names, true);
 export const deleteBuilds = makeReMethods(deleteOldBuild);
 const addBuildConf = makeReMethods(addNewBuildConfRequest);
 export const addNewBuild = makeReMethods(addNewBuildRequest);

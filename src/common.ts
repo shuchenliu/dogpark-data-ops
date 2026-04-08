@@ -45,4 +45,9 @@ export const SPECIAL_DATASETS: SpecialDataset[] = [
         staging_tag: null,
         prod_tag: "ubergraph_nodes_mapping",
     },
+    {
+        build_name: "ubergraph_nodes",
+        staging_tag: null,
+        prod_tag: "ubergraph_nodes",
+    },
 ];

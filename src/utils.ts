@@ -21,6 +21,35 @@ export const pingHub = async (): Promise<{ ok: boolean; error?: string }> => {
     }
 };
 
+export const checkHubSource = async (
+    name: string,
+): Promise<{ exists: boolean; error?: string; status?: number }> => {
+    try {
+        const response = await fetch(`${HUB_URL}source/${name}`, {
+            signal: AbortSignal.timeout(10_000),
+        });
+
+        if (response.ok) {
+            return { exists: true, status: response.status };
+        }
+
+        if (response.status === 404) {
+            return { exists: false, status: response.status };
+        }
+
+        return {
+            exists: false,
+            status: response.status,
+            error: `HTTP ${response.status}`,
+        };
+    } catch (err) {
+        return {
+            exists: false,
+            error: err instanceof Error ? err.message : String(err),
+        };
+    }
+};
+
 function deleteOldBuild(name: string): Promise<Response> {
     return fetch(`${HUB_URL}build/${name}`, {
         method: "DELETE",

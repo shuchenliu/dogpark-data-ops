@@ -9,7 +9,7 @@ import { type StagingBatchConfig, releaseStaging } from "./staging.js";
 import { releaseProd } from "./prod.js";
 import { removeIndicesWithDeleteTag } from "./delete.js";
 import { removeStoredBuilds } from "./remove-builds.js";
-import { dump } from "../utils.js";
+import { checkHubSource, dump, HUB_URL, pingHub } from "../utils.js";
 import { ALL_DATASETS, DUMP_ONLY, SPECIAL_DATASETS } from "../common.js";
 
 (async function () {
@@ -151,6 +151,55 @@ import { ALL_DATASETS, DUMP_ONLY, SPECIAL_DATASETS } from "../common.js";
                 console.log(
                     `Starting dump process for ${targets.length} datasets...`,
                 );
+
+                const dryRunLabel = hasDryRun ? "[DRY RUN] " : "";
+                const hubPing = await pingHub();
+                if (!hubPing.ok) {
+                    if (hasDryRun) {
+                        console.warn(
+                            `\x1b[31m${dryRunLabel}Warning: Hub unreachable at ${HUB_URL} (${hubPing.error})\x1b[0m`,
+                        );
+                    } else {
+                        throw new Error(
+                            `\x1b[31mHub unreachable at ${HUB_URL} (${hubPing.error}). Aborting dump.\x1b[0m`,
+                        );
+                    }
+                } else {
+                    console.log(`${dryRunLabel}Hub reachable at ${HUB_URL}`);
+                }
+
+                if (hasDryRun) {
+                    console.log(`${dryRunLabel}Force mode: ${hasForceDump}`);
+                    console.log(
+                        `${dryRunLabel}Would dump the following datasets:`,
+                    );
+                    if (!hubPing.ok) {
+                        for (const target of targets) {
+                            console.log(
+                                `• ${dryRunLabel}${target} (source existence could not be confirmed because hub is unreachable)`,
+                            );
+                        }
+                        return;
+                    }
+                    for (const target of targets) {
+                        const sourceStatus = await checkHubSource(target);
+                        if (sourceStatus.exists) {
+                            console.log(
+                                `✅ ${dryRunLabel}${target} source exists on hub`,
+                            );
+                        } else if (sourceStatus.error) {
+                            console.log(
+                                `⚠️  ${dryRunLabel}${target} source could not be confirmed on hub (${sourceStatus.error})`,
+                            );
+                        } else {
+                            console.log(
+                                `❌ ${dryRunLabel}${target} source not found on hub`,
+                            );
+                        }
+                    }
+                    return;
+                }
+
                 const statuses = await dump(targets, hasForceDump);
                 for (let i = 0; i < statuses.length; i++) {
                     const res = statuses[i];

@@ -9,11 +9,14 @@ import { type StagingBatchConfig, releaseStaging } from "./staging.js";
 import { releaseProd } from "./prod.js";
 import { removeIndicesWithDeleteTag } from "./delete.js";
 import { removeStoredBuilds } from "./remove-builds.js";
+import { reDump } from "../utils.js";
+import { ALL_DATASETS, DUMP_ONLY, SPECIAL_DATASETS } from "../common.js";
 
 (async function () {
     const args = process.argv.slice(2);
 
     // Parse flags
+    const hasDump = args.includes("--dump");
     const hasBuild = args.includes("-b") || args.includes("--build");
     const hasRemove = args.includes("-rb") || args.includes("--remove-build");
     const hasReleaseStaging =
@@ -134,6 +137,29 @@ import { removeStoredBuilds } from "./remove-builds.js";
 
     const actions: Action[] = [
         {
+            check: () => hasDump,
+            execute: async () => {
+                const specialStandalone = SPECIAL_DATASETS.filter(
+                    (d) => d.standalone_plugin,
+                ).map((d) => d.build_name);
+                const targets = [
+                    ...ALL_DATASETS,
+                    ...DUMP_ONLY,
+                    ...specialStandalone,
+                ];
+                console.log(
+                    `Starting dump process for ${targets.length} datasets...`,
+                );
+                const statuses = await reDump(targets);
+                for (let i = 0; i < statuses.length; i++) {
+                    const res = statuses[i];
+                    if (res.status !== "fulfilled" || !res.value.ok) {
+                        console.log(`${targets[i]} errored out`, res);
+                    }
+                }
+            },
+        },
+        {
             check: () => hasBuild,
             execute: async () => {
                 console.log("Starting build process...");
@@ -194,9 +220,13 @@ import { removeStoredBuilds } from "./remove-builds.js";
         await action.execute();
     } else {
         console.log(
-            "Usage: npx tsx release.ts [-b|--build] [-rb|--remove-build [filename]] [-rs|--release-staging [filename]] [-rp|--release-prod [filename]] [-rdi|--remove-delete-tagged-indices]",
+            "Usage: npx tsx release.ts [--dump] [-b|--build] [-rb|--remove-build [filename]] [-rs|--release-staging [filename]] [-rp|--release-prod [filename]] [-rdi|--remove-delete-tagged-indices]",
         );
-        console.log("Build options:");
+        console.log("Dump options:");
+        console.log(
+            "  --dump                      Trigger dump for all datasets (includes dump-only and standalone plugins)",
+        );
+        console.log("\nBuild options:");
         console.log(
             "  -b, --build                 Initiate builds for all datasets",
         );

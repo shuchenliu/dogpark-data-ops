@@ -5,11 +5,12 @@ import {
     isDeployTarget,
 } from "./common.js";
 import { DATASETS, startAddNewBuilds } from "./build.js";
+import { startDumpJobs } from "./dump.js";
 import { type StagingBatchConfig, releaseStaging } from "./staging.js";
 import { releaseProd } from "./prod.js";
 import { removeIndicesWithDeleteTag } from "./delete.js";
 import { removeStoredBuilds } from "./remove-builds.js";
-import { checkHubSource, dump, getHubUrl, pingHub } from "../utils.js";
+import { getHubUrl } from "../utils.js";
 import { ALL_DATASETS, DUMP_ONLY, SPECIAL_DATASETS } from "../common.js";
 import {
     RUNTIME_CONFIG_PATH,
@@ -46,6 +47,16 @@ import {
         args.includes("--purge") || args.includes("--purge-mode");
     const hasStagingTagsOnly =
         args.includes("--tags-only") || args.includes("--skip-indexing");
+    let dumpSourceName: string | undefined;
+    const dumpSourceIndex = args.findIndex(
+        (arg) => arg === "--source" || arg === "--dump-source",
+    );
+    if (dumpSourceIndex !== -1 && dumpSourceIndex + 1 < args.length) {
+        const rawSourceName = args[dumpSourceIndex + 1];
+        if (!rawSourceName.startsWith("-")) {
+            dumpSourceName = rawSourceName;
+        }
+    }
 
     if (enableOnPremise && disableOnPremise) {
         throw new Error(
@@ -173,72 +184,33 @@ import {
                 const specialStandalone = SPECIAL_DATASETS.filter(
                     (d) => d.standalone_plugin,
                 ).map((d) => d.build_name);
-                const targets = [
+                const allDumpTargets = [
                     ...ALL_DATASETS,
                     ...DUMP_ONLY,
                     ...specialStandalone,
                 ];
+                const targets = dumpSourceName
+                    ? [dumpSourceName]
+                    : allDumpTargets;
+
+                if (
+                    dumpSourceName &&
+                    !allDumpTargets.includes(dumpSourceName)
+                ) {
+                    throw new Error(
+                        `Invalid dump source: ${dumpSourceName}. Must be one of: ${allDumpTargets.join(", ")}`,
+                    );
+                }
+
                 console.log(
                     `Starting dump process for ${targets.length} datasets...`,
                 );
-
-                const dryRunLabel = hasDryRun ? "[DRY RUN] " : "";
-                const hubPing = await pingHub();
-                if (!hubPing.ok) {
-                    if (hasDryRun) {
-                        console.warn(
-                            `\x1b[31m${dryRunLabel}Warning: Hub unreachable at ${currentHubUrl} (${hubPing.error})\x1b[0m`,
-                        );
-                    } else {
-                        throw new Error(
-                            `\x1b[31mHub unreachable at ${currentHubUrl} (${hubPing.error}). Aborting dump.\x1b[0m`,
-                        );
-                    }
-                } else {
-                    console.log(
-                        `${dryRunLabel}Hub reachable at ${currentHubUrl}`,
-                    );
-                }
-
-                if (hasDryRun) {
-                    console.log(`${dryRunLabel}Force mode: ${hasForceDump}`);
-                    console.log(
-                        `${dryRunLabel}Would dump the following datasets:`,
-                    );
-                    if (!hubPing.ok) {
-                        for (const target of targets) {
-                            console.log(
-                                `• ${dryRunLabel}${target} (source existence could not be confirmed because hub is unreachable)`,
-                            );
-                        }
-                        return;
-                    }
-                    for (const target of targets) {
-                        const sourceStatus = await checkHubSource(target);
-                        if (sourceStatus.exists) {
-                            console.log(
-                                `✅ ${dryRunLabel}${target} source exists on hub`,
-                            );
-                        } else if (sourceStatus.error) {
-                            console.log(
-                                `⚠️  ${dryRunLabel}${target} source could not be confirmed on hub (${sourceStatus.error})`,
-                            );
-                        } else {
-                            console.log(
-                                `❌ ${dryRunLabel}${target} source not found on hub`,
-                            );
-                        }
-                    }
-                    return;
-                }
-
-                const statuses = await dump(targets, hasForceDump);
-                for (let i = 0; i < statuses.length; i++) {
-                    const res = statuses[i];
-                    if (res.status !== "fulfilled" || !res.value.ok) {
-                        console.log(`${targets[i]} errored out`, res);
-                    }
-                }
+                await startDumpJobs(
+                    targets,
+                    durationSeconds * 1000,
+                    hasDryRun,
+                    hasForceDump,
+                );
             },
         },
         {
@@ -326,6 +298,9 @@ import {
         console.log("Dump options:");
         console.log(
             "  --dump                      Trigger dump for all datasets (includes dump-only and standalone plugins)",
+        );
+        console.log(
+            "  --source, --dump-source <name>  Trigger dump for a single source only",
         );
         console.log(
             "  --force                     Force dump jobs when used with --dump",

@@ -182,6 +182,12 @@ export interface DeleteIndicesResponse {
     acknowledged?: boolean;
 }
 
+export interface IndexStats {
+    docsCount: number;
+    storeSizeBytes: number;
+    found: boolean;
+}
+
 export interface AliasOperation {
     action: "add" | "remove";
     indices: string[];
@@ -336,6 +342,60 @@ export const deleteIndices = async (
     }
 
     return data;
+};
+
+export const getIndexStats = async (
+    indexName: string,
+    esUrl: string,
+    hostHeader?: string,
+): Promise<IndexStats> => {
+    const response = await esFetch(
+        `${esUrl}${encodeURIComponent(indexName)}/_stats/docs,store`,
+        undefined,
+        hostHeader,
+    );
+
+    if (response.status === 404) {
+        return {
+            docsCount: 0,
+            storeSizeBytes: 0,
+            found: false,
+        };
+    }
+
+    if (!response.ok) {
+        const text = await response.text();
+        throw new Error(
+            `Elasticsearch stats request failed for ${indexName} (HTTP ${response.status}): ${text}`,
+        );
+    }
+
+    const payload = (await response.json()) as {
+        _all?: {
+            primaries?: {
+                docs?: { count?: unknown };
+                store?: { size_in_bytes?: unknown };
+            };
+            total?: {
+                docs?: { count?: unknown };
+                store?: { size_in_bytes?: unknown };
+            };
+        };
+    };
+
+    const stats = payload._all?.primaries ?? payload._all?.total;
+    const docsCount =
+        typeof stats?.docs?.count === "number" ? stats.docs.count : 0;
+    const storeSizeBytes =
+        typeof stats?.store?.size_in_bytes === "number"
+            ? stats.store.size_in_bytes
+            : 0;
+
+    return {
+        docsCount,
+        storeSizeBytes,
+        found: true,
+    };
 };
 
 // --- Name / time helpers ---

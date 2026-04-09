@@ -7,6 +7,7 @@ import {
     validateDeployClusterName,
 } from "./common.js";
 import { DATASETS, startAddNewBuilds } from "./build.js";
+import { compareIndicesAcrossTargets } from "./compare.js";
 import { startDumpJobs } from "./dump.js";
 import { type StagingBatchConfig, releaseStaging } from "./staging.js";
 import { releaseProd } from "./prod.js";
@@ -26,6 +27,7 @@ import {
     // Parse flags
     const hasDump = args.includes("--dump");
     const hasCheck = args.includes("--check");
+    const hasCompare = args.includes("--compare");
     const hasForceDump = args.includes("--force");
     const enableOnPremise = args.includes("--on-premise");
     const disableOnPremise =
@@ -174,6 +176,40 @@ import {
         prodFileName = args[prodIndex + 1];
     }
 
+    let compareSourceTarget: DeployTarget | undefined;
+    let compareTargetName: DeployTarget | undefined;
+    const compareIndex = args.findIndex((arg) => arg === "--compare");
+    if (compareIndex !== -1) {
+        const rawSourceTarget = args[compareIndex + 1];
+        const rawTargetTarget = args[compareIndex + 2];
+
+        if (
+            rawSourceTarget &&
+            !rawSourceTarget.startsWith("-") &&
+            isDeployTarget(rawSourceTarget)
+        ) {
+            compareSourceTarget = rawSourceTarget;
+        }
+
+        if (
+            rawTargetTarget &&
+            !rawTargetTarget.startsWith("-") &&
+            isDeployTarget(rawTargetTarget)
+        ) {
+            compareTargetName = rawTargetTarget;
+        }
+    }
+
+    const compareFileIndex = args.findIndex(
+        (arg) => arg === "--file" || arg === "--compare-file",
+    );
+    const compareFileName =
+        compareFileIndex !== -1 &&
+        compareFileIndex + 1 < args.length &&
+        !args[compareFileIndex + 1].startsWith("-")
+            ? args[compareFileIndex + 1]
+            : undefined;
+
     // Define actions
     interface Action {
         check: () => boolean;
@@ -212,6 +248,18 @@ import {
                         ? "✅ Deploy target validated"
                         : "❌ Deploy target validation failed",
                 );
+            },
+        },
+        {
+            check: () => hasCompare,
+            execute: async () => {
+                const sourceTarget = compareSourceTarget ?? deployTarget;
+                const secondTarget = compareTargetName ?? "su12";
+                await compareIndicesAcrossTargets({
+                    fileName: compareFileName ?? "latest-builds.txt",
+                    sourceTarget,
+                    targetTarget: secondTarget,
+                });
             },
         },
         {
@@ -334,6 +382,12 @@ import {
         console.log("Dump options:");
         console.log(
             "  --check                     Ping the active hub and validate the current deploy target",
+        );
+        console.log(
+            `  --compare <${Object.keys(activeDeployConfigs).join("|")}> <${Object.keys(activeDeployConfigs).join("|")}>  Compare record counts for listed indices across two deploy targets`,
+        );
+        console.log(
+            "  --file, --compare-file [filename]  Build record file for --compare (defaults to latest-builds.txt)",
         );
         console.log(
             "  --dump                      Trigger dump for all datasets (includes dump-only and standalone plugins)",

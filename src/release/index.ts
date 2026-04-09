@@ -2,7 +2,9 @@ import {
     type DeployTarget,
     DEFAULT_DEPLOY_TARGET,
     getActiveDeployConfigs,
+    getDeployConfig,
     isDeployTarget,
+    validateDeployClusterName,
 } from "./common.js";
 import { DATASETS, startAddNewBuilds } from "./build.js";
 import { startDumpJobs } from "./dump.js";
@@ -10,7 +12,7 @@ import { type StagingBatchConfig, releaseStaging } from "./staging.js";
 import { releaseProd } from "./prod.js";
 import { removeIndicesWithDeleteTag } from "./delete.js";
 import { removeStoredBuilds } from "./remove-builds.js";
-import { getHubUrl } from "../utils.js";
+import { getHubUrl, pingHub } from "../utils.js";
 import { ALL_DATASETS, DUMP_ONLY, SPECIAL_DATASETS } from "../common.js";
 import {
     RUNTIME_CONFIG_PATH,
@@ -23,6 +25,7 @@ import {
 
     // Parse flags
     const hasDump = args.includes("--dump");
+    const hasCheck = args.includes("--check");
     const hasForceDump = args.includes("--force");
     const enableOnPremise = args.includes("--on-premise");
     const disableOnPremise =
@@ -179,6 +182,39 @@ import {
 
     const actions: Action[] = [
         {
+            check: () => hasCheck,
+            execute: async () => {
+                const deployConfig = getDeployConfig(deployTarget);
+                const hubPing = await pingHub();
+                const { ok, actualClusterName } =
+                    await validateDeployClusterName(deployConfig);
+
+                console.log(
+                    `Runtime mode: ${currentOnPremiseMode ? "on-premise" : "local"}`,
+                );
+                console.log(`Hub URL: ${currentHubUrl}`);
+                if (hubPing.ok) {
+                    console.log(`✅ Hub reachable`);
+                } else {
+                    console.log(`❌ Hub unreachable: ${hubPing.error}`);
+                }
+
+                console.log(`Deploy target: ${deployConfig.target}`);
+                console.log(`ES URL: ${deployConfig.ES_URL}`);
+                console.log(
+                    `Expected cluster_name: ${deployConfig.cluster_name}`,
+                );
+                console.log(
+                    `Actual cluster_name: ${actualClusterName ?? "<unavailable>"}`,
+                );
+                console.log(
+                    ok
+                        ? "✅ Deploy target validated"
+                        : "❌ Deploy target validation failed",
+                );
+            },
+        },
+        {
             check: () => hasDump,
             execute: async () => {
                 const specialStandalone = SPECIAL_DATASETS.filter(
@@ -296,6 +332,9 @@ import {
             "  --show-config, --show-mode  Show whether the CLI is currently in on-premise mode",
         );
         console.log("Dump options:");
+        console.log(
+            "  --check                     Ping the active hub and validate the current deploy target",
+        );
         console.log(
             "  --dump                      Trigger dump for all datasets (includes dump-only and standalone plugins)",
         );

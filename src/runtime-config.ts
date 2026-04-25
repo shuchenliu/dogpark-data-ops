@@ -18,23 +18,46 @@ const DEFAULT_RUNTIME_CONFIG: RuntimeConfig = {
     onPremise: false,
 };
 
-export const readRuntimeConfig = (): RuntimeConfig => {
-    try {
-        const raw = fs.readFileSync(RUNTIME_CONFIG_PATH, "utf8");
-        const parsed = JSON.parse(raw) as Partial<RuntimeConfig>;
+const isMissingFileError = (error: unknown): error is NodeJS.ErrnoException =>
+    error instanceof Error &&
+    "code" in error &&
+    (error as NodeJS.ErrnoException).code === "ENOENT";
 
-        return {
-            onPremise: parsed.onPremise === true,
-        };
-    } catch {
-        return DEFAULT_RUNTIME_CONFIG;
+export const readRuntimeConfig = (): RuntimeConfig => {
+    let raw: string;
+
+    try {
+        raw = fs.readFileSync(RUNTIME_CONFIG_PATH, "utf8");
+    } catch (error) {
+        if (isMissingFileError(error)) {
+            writeRuntimeConfig(DEFAULT_RUNTIME_CONFIG);
+            return DEFAULT_RUNTIME_CONFIG;
+        }
+
+        throw error;
     }
+
+    const parsed = JSON.parse(raw) as unknown;
+    if (
+        parsed === null ||
+        typeof parsed !== "object" ||
+        Array.isArray(parsed)
+    ) {
+        throw new Error(
+            `Expected runtime config at ${RUNTIME_CONFIG_PATH} to be a JSON object`,
+        );
+    }
+
+    const config = parsed as Partial<RuntimeConfig>;
+    return {
+        onPremise: config.onPremise === true,
+    };
 };
 
 export const writeRuntimeConfig = (config: RuntimeConfig) => {
     fs.writeFileSync(
         RUNTIME_CONFIG_PATH,
-        JSON.stringify(config, null, 2),
+        `${JSON.stringify(config, null, 2)}\n`,
         "utf8",
     );
 };

@@ -61,8 +61,6 @@
         "node": ">=20.19.0"
     },
     "dependencies": {
-        "mongodb": "^7.0.0",
-        "nanoid": "^5.1.6",
-        "socks": "^2.8.7"
+        "nanoid": "^5.1.6"
     }
 }

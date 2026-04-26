@@ -54,3 +54,11 @@ export const SPECIAL_DATASETS: SpecialDataset[] = [
         prod_tag: "ubergraph_nodes",
     },
 ];
+
+export const getAllDumpTargets = () => {
+    const specialStandalone = SPECIAL_DATASETS.filter(
+        (dataset) => dataset.standalone_plugin,
+    ).map((dataset) => dataset.build_name);
+
+    return [...ALL_DATASETS, ...DUMP_ONLY, ...specialStandalone];
+};

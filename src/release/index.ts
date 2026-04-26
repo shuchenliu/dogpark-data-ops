@@ -17,7 +17,7 @@ import { releaseProd } from "./prod.js";
 import { removeIndicesWithDeleteTag } from "./delete.js";
 import { removeStoredBuilds } from "./remove-builds.js";
 import { getHubUrl, pingHub } from "../utils.js";
-import { ALL_DATASETS, DUMP_ONLY, SPECIAL_DATASETS } from "../common.js";
+import { getAllDumpTargets } from "../common.js";
 import { isOnPremiseMode, setOnPremiseMode } from "../runtime-config.js";
 import {
     type RuntimeContextOptions,
@@ -322,14 +322,7 @@ export const runDogparkDataCommand = async (
         {
             check: () => hasDump,
             execute: async () => {
-                const specialStandalone = SPECIAL_DATASETS.filter(
-                    (d) => d.standalone_plugin,
-                ).map((d) => d.build_name);
-                const allDumpTargets = [
-                    ...ALL_DATASETS,
-                    ...DUMP_ONLY,
-                    ...specialStandalone,
-                ];
+                const allDumpTargets = getAllDumpTargets();
                 const targets = dumpSourceName
                     ? [dumpSourceName]
                     : allDumpTargets;

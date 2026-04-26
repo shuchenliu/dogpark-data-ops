@@ -412,6 +412,20 @@ export const getDateString = () =>
 export const getTimeString = () =>
     new Date().toISOString().replace(/[:T]/g, "-").slice(0, 19);
 
+export const formatElapsedTime = (seconds: number): string => {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+
+    if (hours > 0) {
+        return `${String(hours)}h ${String(minutes)}m ${String(secs)}s`;
+    } else if (minutes > 0) {
+        return `${String(minutes)}m ${String(secs)}s`;
+    } else {
+        return `${String(secs)}s`;
+    }
+};
+
 export const getRandomString = () => {
     const nanoid = customAlphabet("abcdefghijklmnopqrstuvwxyz0123456789");
     return nanoid(8);

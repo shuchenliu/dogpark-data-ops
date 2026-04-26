@@ -1,5 +1,6 @@
 import { checkHubSource, dump, getHubUrl, pingHub, sleep } from "../utils.js";
 import type { RuntimeContextOptions } from "../runtime-context.js";
+import { formatElapsedTime } from "./common.js";
 
 export interface DumpResult {
     dataset: string;
@@ -7,20 +8,6 @@ export interface DumpResult {
     timestamp: string;
     error?: string;
 }
-
-const formatTime = (seconds: number): string => {
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    const secs = seconds % 60;
-
-    if (hours > 0) {
-        return `${String(hours)}h ${String(minutes)}m ${String(secs)}s`;
-    } else if (minutes > 0) {
-        return `${String(minutes)}m ${String(secs)}s`;
-    } else {
-        return `${String(secs)}s`;
-    }
-};
 
 export const startDumpJobs = async (
     names: string[],
@@ -124,7 +111,7 @@ export const startDumpJobs = async (
     const clockInterval = setInterval(() => {
         const elapsedMs = Date.now() - startTime;
         const elapsedSec = Math.floor(elapsedMs / 1000);
-        process.stdout.write(`\r⏱️  Elapsed: ${formatTime(elapsedSec)}`);
+        process.stdout.write(`\r⏱️  Elapsed: ${formatElapsedTime(elapsedSec)}`);
     }, 500);
 
     const pendingDumps: Promise<unknown>[] = [];

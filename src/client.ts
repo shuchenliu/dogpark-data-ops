@@ -1,4 +1,4 @@
-import { ALL_DATASETS, DUMP_ONLY, SPECIAL_DATASETS } from "./common.js";
+import { getAllDumpTargets } from "./common.js";
 import {
     type RuntimeContext,
     type RuntimeContextOptions,
@@ -130,14 +130,6 @@ const toDurationMs = (durationSeconds: number | undefined) =>
 
 const getMode = (context: RuntimeContext): DogparkRuntimeMode =>
     isOnPremiseMode(context) ? "on-premise" : "local";
-
-const getAllDumpTargets = () => {
-    const specialStandalone = SPECIAL_DATASETS.filter(
-        (dataset) => dataset.standalone_plugin,
-    ).map((dataset) => dataset.build_name);
-
-    return [...ALL_DATASETS, ...DUMP_ONLY, ...specialStandalone];
-};
 
 export const createDogparkDataClient = (
     options: DogparkDataClientOptions = {},

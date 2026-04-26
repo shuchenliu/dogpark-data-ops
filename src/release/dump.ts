@@ -1,6 +1,7 @@
 import { checkHubSource, dump, getHubUrl, pingHub, sleep } from "../utils.js";
+import type { RuntimeContextOptions } from "../runtime-context.js";
 
-interface DumpResult {
+export interface DumpResult {
     dataset: string;
     success: boolean;
     timestamp: string;
@@ -13,32 +14,33 @@ const formatTime = (seconds: number): string => {
     const secs = seconds % 60;
 
     if (hours > 0) {
-        return `${hours}h ${minutes}m ${secs}s`;
+        return `${String(hours)}h ${String(minutes)}m ${String(secs)}s`;
     } else if (minutes > 0) {
-        return `${minutes}m ${secs}s`;
+        return `${String(minutes)}m ${String(secs)}s`;
     } else {
-        return `${secs}s`;
+        return `${String(secs)}s`;
     }
 };
 
 export const startDumpJobs = async (
     names: string[],
-    totalDurationMs: number = 180000,
-    dryRun: boolean = false,
-    force: boolean = false,
+    totalDurationMs = 180000,
+    dryRun = false,
+    force = false,
+    context?: RuntimeContextOptions,
 ): Promise<DumpResult[]> => {
     const dryRunLabel = dryRun ? "[DRY RUN] " : "";
-    const hubUrl = getHubUrl();
+    const hubUrl = getHubUrl(context);
 
-    const hubPing = await pingHub();
+    const hubPing = await pingHub(context);
     if (!hubPing.ok) {
         if (dryRun) {
             console.warn(
-                `\x1b[31m${dryRunLabel}Warning: Hub unreachable at ${hubUrl} (${hubPing.error})\x1b[0m`,
+                `\x1b[31m${dryRunLabel}Warning: Hub unreachable at ${hubUrl} (${hubPing.error ?? "<unknown>"})\x1b[0m`,
             );
         } else {
             throw new Error(
-                `\x1b[31mHub unreachable at ${hubUrl} (${hubPing.error}). Aborting dump.\x1b[0m`,
+                `\x1b[31mHub unreachable at ${hubUrl} (${hubPing.error ?? "<unknown>"}). Aborting dump.\x1b[0m`,
             );
         }
     } else {
@@ -49,9 +51,9 @@ export const startDumpJobs = async (
     const intervalMs = Math.floor(totalDurationMs / names.length);
 
     console.log(
-        `${dryRunLabel}Starting to dump ${names.length} datasets over ${totalDurationMs}ms (~${intervalMs}ms between each)`,
+        `${dryRunLabel}Starting to dump ${String(names.length)} datasets over ${String(totalDurationMs)}ms (~${String(intervalMs)}ms between each)`,
     );
-    console.log(`${dryRunLabel}Force mode: ${force}`);
+    console.log(`${dryRunLabel}Force mode: ${String(force)}`);
 
     if (dryRun) {
         if (!hubPing.ok) {
@@ -73,13 +75,13 @@ export const startDumpJobs = async (
         for (let i = 0; i < names.length; i++) {
             const name = names[i];
             const index = i + 1;
-            const sourceStatus = await checkHubSource(name);
+            const sourceStatus = await checkHubSource(name, context);
             const timestamp = new Date().toISOString();
 
             if (sourceStatus.exists) {
                 results.push({ dataset: name, success: true, timestamp });
                 console.log(
-                    `✅ [${index}/${names.length}] ${dryRunLabel}${name} source exists on hub`,
+                    `✅ [${String(index)}/${String(names.length)}] ${dryRunLabel}${name} source exists on hub`,
                 );
             } else if (sourceStatus.error) {
                 results.push({
@@ -89,7 +91,7 @@ export const startDumpJobs = async (
                     error: sourceStatus.error,
                 });
                 console.log(
-                    `⚠️  [${index}/${names.length}] ${dryRunLabel}${name} source could not be confirmed on hub (${sourceStatus.error})`,
+                    `⚠️  [${String(index)}/${String(names.length)}] ${dryRunLabel}${name} source could not be confirmed on hub (${sourceStatus.error})`,
                 );
             } else {
                 results.push({
@@ -99,7 +101,7 @@ export const startDumpJobs = async (
                     error: "source not found on hub",
                 });
                 console.log(
-                    `❌ [${index}/${names.length}] ${dryRunLabel}${name} source not found on hub`,
+                    `❌ [${String(index)}/${String(names.length)}] ${dryRunLabel}${name} source not found on hub`,
                 );
             }
 
@@ -111,7 +113,7 @@ export const startDumpJobs = async (
         const successful = results.filter((r) => r.success).length;
         const failed = results.length - successful;
         console.log(
-            `\n✨ ${dryRunLabel}Dump check complete: ${successful} successful, ${failed} failed`,
+            `\n✨ ${dryRunLabel}Dump check complete: ${String(successful)} successful, ${String(failed)} failed`,
         );
 
         return results;
@@ -132,7 +134,7 @@ export const startDumpJobs = async (
         const timestamp = new Date().toISOString();
         const index = i + 1;
 
-        const dumpPromise = dump([dataset], force)
+        const dumpPromise = dump([dataset], force, context)
             .then((result) => {
                 process.stdout.write("\r\x1b[K");
                 const settled = result[0];
@@ -144,42 +146,46 @@ export const startDumpJobs = async (
                         timestamp,
                     });
                     console.log(
-                        `✅ [${index}/${names.length}] ${dataset} dump started`,
+                        `✅ [${String(index)}/${String(names.length)}] ${dataset} dump started`,
                     );
                 } else if (settled.status === "fulfilled") {
+                    const statusCode = String(settled.value.status);
                     results.push({
                         dataset,
                         success: false,
                         timestamp,
-                        error: `HTTP ${settled.value.status}`,
+                        error: `HTTP ${statusCode}`,
                     });
                     console.log(
-                        `❌ [${index}/${names.length}] ${dataset} failed: HTTP ${settled.value.status}`,
+                        `❌ [${String(index)}/${String(names.length)}] ${dataset} failed: HTTP ${statusCode}`,
                     );
                 } else {
+                    const errorMessage = String(settled.reason);
                     results.push({
                         dataset,
                         success: false,
                         timestamp,
-                        error: String(settled.reason),
+                        error: errorMessage,
                     });
                     console.log(
-                        `❌ [${index}/${names.length}] ${dataset} failed: ${settled.reason}`,
+                        `❌ [${String(index)}/${String(names.length)}] ${dataset} failed: ${errorMessage}`,
                     );
                 }
 
                 return result;
             })
-            .catch((err) => {
+            .catch((err: unknown) => {
+                const errorMessage =
+                    err instanceof Error ? err.message : String(err);
                 process.stdout.write("\r\x1b[K");
                 results.push({
                     dataset,
                     success: false,
                     timestamp,
-                    error: err instanceof Error ? err.message : String(err),
+                    error: errorMessage,
                 });
                 console.log(
-                    `❌ [${index}/${names.length}] ${dataset} error: ${err instanceof Error ? err.message : String(err)}`,
+                    `❌ [${String(index)}/${String(names.length)}] ${dataset} error: ${errorMessage}`,
                 );
             });
 
@@ -198,7 +204,7 @@ export const startDumpJobs = async (
     const successful = results.filter((r) => r.success).length;
     const failed = results.length - successful;
     console.log(
-        `\n✨ Dump complete: ${successful} successful, ${failed} failed`,
+        `\n✨ Dump complete: ${String(successful)} successful, ${String(failed)} failed`,
     );
 
     return results;

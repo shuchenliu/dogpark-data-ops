@@ -1,5 +1,6 @@
 import { deleteBuilds } from "../utils.js";
 import { readNames } from "./common.js";
+import type { RuntimeContextOptions } from "../runtime-context.js";
 
 /**
  * Removes builds specified in a file.
@@ -13,7 +14,8 @@ import { readNames } from "./common.js";
  */
 export const removeStoredBuilds = async (
     fileName?: string,
-    dryRun: boolean = false,
+    dryRun = false,
+    context?: RuntimeContextOptions,
 ): Promise<PromiseSettledResult<Response>[]> => {
     // Default to the shared latest builds artifact if no filename is provided
     const targetFile =
@@ -22,47 +24,53 @@ export const removeStoredBuilds = async (
 
     console.log(`${dryRunLabel}Removing builds from ${targetFile}...`);
 
-    const buildNames = readNames(targetFile);
-    console.log(`Found ${buildNames.length} builds to remove`);
+    const buildNames = readNames(targetFile, context);
+    console.log(`Found ${String(buildNames.length)} builds to remove`);
 
     const results: PromiseSettledResult<Response>[] = dryRun
-        ? (buildNames.map(() => ({
-              status: "fulfilled" as const,
-          })) as PromiseSettledResult<Response>[])
-        : await deleteBuilds(buildNames);
+        ? buildNames.map(
+              () =>
+                  ({
+                      status: "fulfilled",
+                      value: new Response(null, { status: 204 }),
+                  }) satisfies PromiseFulfilledResult<Response>,
+          )
+        : await deleteBuilds(buildNames, context);
 
     // Log individual results
     buildNames.forEach((buildName, index) => {
-        const result = results[index] as any;
+        const result = results[index];
         if (result.status === "fulfilled") {
             if (dryRun) {
                 console.log(`✅ Would remove ${buildName}`);
             } else {
-                const response = result.value as Response;
-                if (response && response.ok) {
+                const response = result.value;
+                if (response.ok) {
                     console.log(`✅ Removed ${buildName}`);
                 } else {
-                    const status = response?.status || "unknown";
+                    const status = String(response.status);
                     console.log(
                         `❌ Failed to remove ${buildName}: HTTP ${status}`,
                     );
                 }
             }
         } else {
-            console.log(`❌ Failed to remove ${buildName}: ${result.reason}`);
+            console.log(
+                `❌ Failed to remove ${buildName}: ${String(result.reason)}`,
+            );
         }
     });
 
     // Log summary
-    const successful = results.filter((r: any) => {
+    const successful = results.filter((result) => {
         if (dryRun) {
-            return r.status === "fulfilled";
+            return result.status === "fulfilled";
         }
-        return r.status === "fulfilled" && (r.value as Response).ok;
+        return result.status === "fulfilled" && result.value.ok;
     }).length;
     const failed = results.length - successful;
     console.log(
-        `\n✨ ${dryRunLabel}Removal complete: ${successful} successful, ${failed} failed`,
+        `\n✨ ${dryRunLabel}Removal complete: ${String(successful)} successful, ${String(failed)} failed`,
     );
 
     return results;

@@ -2,9 +2,13 @@ import { customAlphabet } from "nanoid";
 import fs from "fs";
 import http from "http";
 import path from "path";
-import { fileURLToPath } from "url";
 import { SPECIAL_DATASETS } from "../common.js";
 import { isOnPremiseMode } from "../runtime-config.js";
+import {
+    DEFAULT_RELEASE_RECORDS_DIR,
+    type RuntimeContextOptions,
+    resolveRuntimeContext,
+} from "../runtime-context.js";
 
 // --- Special dataset resolution ---
 
@@ -79,11 +83,13 @@ export const onPremiseDeployConfigs: Record<DeployTarget, DeployConfig> = {
 export const isDeployTarget = (value: string): value is DeployTarget =>
     value in deployConfigs;
 
-export const getActiveDeployConfigs = () =>
-    isOnPremiseMode() ? onPremiseDeployConfigs : deployConfigs;
+export const getActiveDeployConfigs = (context?: RuntimeContextOptions) =>
+    isOnPremiseMode(context) ? onPremiseDeployConfigs : deployConfigs;
 
-export const getDeployConfig = (target: DeployTarget): DeployConfig =>
-    getActiveDeployConfigs()[target];
+export const getDeployConfig = (
+    target: DeployTarget,
+    context?: RuntimeContextOptions,
+): DeployConfig => getActiveDeployConfigs(context)[target];
 
 /**
  * Wrapper around fetch that optionally sets the Host header.
@@ -240,7 +246,7 @@ export const assertAliasesOk = async (response: Response) => {
     if (!response.ok) {
         const text = await response.text();
         throw new Error(
-            `Elasticsearch alias update failed (HTTP ${response.status}): ${text}`,
+            `Elasticsearch alias update failed (HTTP ${String(response.status)}): ${text}`,
         );
     }
 };
@@ -329,7 +335,7 @@ export const deleteIndices = async (
     if (!response.ok) {
         const text = await response.text();
         throw new Error(
-            `Elasticsearch index deletion failed (HTTP ${response.status}): ${text}`,
+            `Elasticsearch index deletion failed (HTTP ${String(response.status)}): ${text}`,
         );
     }
 
@@ -366,7 +372,7 @@ export const getIndexStats = async (
     if (!response.ok) {
         const text = await response.text();
         throw new Error(
-            `Elasticsearch stats request failed for ${indexName} (HTTP ${response.status}): ${text}`,
+            `Elasticsearch stats request failed for ${indexName} (HTTP ${String(response.status)}): ${text}`,
         );
     }
 
@@ -415,12 +421,7 @@ export const getBuildName = (name: string) => {
     return `${name}_${getDateString()}_${getRandomString()}`;
 };
 
-const RELEASE_COMMON_FILE = fileURLToPath(import.meta.url);
-export const REPO_ROOT = path.resolve(
-    path.dirname(RELEASE_COMMON_FILE),
-    "../..",
-);
-export const RELEASE_RECORDS_DIR = "release-records";
+export const RELEASE_RECORDS_DIR = DEFAULT_RELEASE_RECORDS_DIR;
 
 export type ReleaseRecordKind = "builds" | "deprecations";
 export type ReleaseRecordRunMode = "live" | "dry-run";
@@ -445,8 +446,10 @@ const classifyReleaseRecord = (
 export const ensureReleaseRecordsDir = (
     kind: ReleaseRecordKind,
     mode: ReleaseRecordRunMode,
+    context?: RuntimeContextOptions,
 ) => {
-    fs.mkdirSync(path.join(REPO_ROOT, RELEASE_RECORDS_DIR, kind, mode), {
+    const runtimeContext = resolveRuntimeContext(context);
+    fs.mkdirSync(path.join(runtimeContext.releaseRecordsDir, kind, mode), {
         recursive: true,
     });
 };
@@ -455,11 +458,12 @@ export const getReleaseRecordPath = (
     fileName: string,
     kind?: ReleaseRecordKind,
     mode?: ReleaseRecordRunMode,
+    context?: RuntimeContextOptions,
 ) => {
+    const runtimeContext = resolveRuntimeContext(context);
     const classified = classifyReleaseRecord(fileName);
     return path.join(
-        REPO_ROOT,
-        RELEASE_RECORDS_DIR,
+        runtimeContext.releaseRecordsDir,
         kind ?? classified.kind,
         mode ?? classified.mode,
         ensureTxtExtension(path.basename(fileName)),
@@ -471,45 +475,53 @@ export const writeReleaseRecord = (
     contents: string,
     kind?: ReleaseRecordKind,
     mode?: ReleaseRecordRunMode,
+    context?: RuntimeContextOptions,
 ) => {
     const classified = classifyReleaseRecord(fileName);
     const targetKind = kind ?? classified.kind;
     const targetMode = mode ?? classified.mode;
-    ensureReleaseRecordsDir(targetKind, targetMode);
-    const targetPath = getReleaseRecordPath(fileName, targetKind, targetMode);
+    ensureReleaseRecordsDir(targetKind, targetMode, context);
+    const targetPath = getReleaseRecordPath(
+        fileName,
+        targetKind,
+        targetMode,
+        context,
+    );
     fs.writeFileSync(targetPath, contents, "utf8");
     return targetPath;
 };
 
-export const resolveReleaseFilePath = (fileName: string) => {
+export const resolveReleaseFilePath = (
+    fileName: string,
+    context?: RuntimeContextOptions,
+) => {
     if (path.isAbsolute(fileName)) {
         return fileName;
     }
 
+    const runtimeContext = resolveRuntimeContext(context);
     const nameWithExtension = ensureTxtExtension(fileName);
-    const rootFilePath = path.join(REPO_ROOT, fileName);
-    const rootNameWithExtension = path.join(REPO_ROOT, nameWithExtension);
+    const workspaceFilePath = path.resolve(
+        runtimeContext.workspaceRoot,
+        fileName,
+    );
+    const workspaceNameWithExtension = path.resolve(
+        runtimeContext.workspaceRoot,
+        nameWithExtension,
+    );
 
-    if (fs.existsSync(fileName)) {
-        return fileName;
+    if (fs.existsSync(workspaceFilePath)) {
+        return workspaceFilePath;
     }
 
-    if (fs.existsSync(nameWithExtension)) {
-        return nameWithExtension;
-    }
-
-    if (fs.existsSync(rootFilePath)) {
-        return rootFilePath;
-    }
-
-    if (fs.existsSync(rootNameWithExtension)) {
-        return rootNameWithExtension;
+    if (fs.existsSync(workspaceNameWithExtension)) {
+        return workspaceNameWithExtension;
     }
 
     const classified = classifyReleaseRecord(fileName);
     const candidatePaths = [
-        getReleaseRecordPath(fileName, classified.kind, "live"),
-        getReleaseRecordPath(fileName, classified.kind, "dry-run"),
+        getReleaseRecordPath(fileName, classified.kind, "live", context),
+        getReleaseRecordPath(fileName, classified.kind, "dry-run", context),
     ];
 
     for (const candidatePath of candidatePaths) {
@@ -521,8 +533,11 @@ export const resolveReleaseFilePath = (fileName: string) => {
     return candidatePaths[0];
 };
 
-export const readNames = (fileName: string) => {
-    const resolvedPath = resolveReleaseFilePath(fileName);
+export const readNames = (
+    fileName: string,
+    context?: RuntimeContextOptions,
+) => {
+    const resolvedPath = resolveReleaseFilePath(fileName, context);
     const data = fs.readFileSync(resolvedPath, "utf8");
     const buildNames = data.split(/\r?\n/).filter(Boolean);
 

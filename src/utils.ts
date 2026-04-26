@@ -1,22 +1,25 @@
 import { UploadMode } from "./types.js";
 import { isOnPremiseMode } from "./runtime-config.js";
+import type { RuntimeContextOptions } from "./runtime-context.js";
 
 export const DEFAULT_HUB_URL = "http://localhost:19180/";
 export const ON_PREMISE_HUB_URL = "http://su06:19180/";
 
 const DEFAULT_INDEX_TARGET_LOCATION = "transltr";
 
-export const getHubUrl = () =>
-    isOnPremiseMode() ? ON_PREMISE_HUB_URL : DEFAULT_HUB_URL;
+export const getHubUrl = (context?: RuntimeContextOptions) =>
+    isOnPremiseMode(context) ? ON_PREMISE_HUB_URL : DEFAULT_HUB_URL;
 
-export const pingHub = async (): Promise<{ ok: boolean; error?: string }> => {
-    const hubUrl = getHubUrl();
+export const pingHub = async (
+    context?: RuntimeContextOptions,
+): Promise<{ ok: boolean; error?: string }> => {
+    const hubUrl = getHubUrl(context);
     try {
         const response = await fetch(hubUrl, {
             signal: AbortSignal.timeout(10_000),
         });
         if (!response.ok) {
-            return { ok: false, error: `HTTP ${response.status}` };
+            return { ok: false, error: `HTTP ${String(response.status)}` };
         }
         return { ok: true };
     } catch (err) {
@@ -29,8 +32,9 @@ export const pingHub = async (): Promise<{ ok: boolean; error?: string }> => {
 
 export const checkHubSource = async (
     name: string,
+    context?: RuntimeContextOptions,
 ): Promise<{ exists: boolean; error?: string; status?: number }> => {
-    const hubUrl = getHubUrl();
+    const hubUrl = getHubUrl(context);
     try {
         const response = await fetch(`${hubUrl}source/${name}`, {
             signal: AbortSignal.timeout(10_000),
@@ -47,7 +51,7 @@ export const checkHubSource = async (
         return {
             exists: false,
             status: response.status,
-            error: `HTTP ${response.status}`,
+            error: `HTTP ${String(response.status)}`,
         };
     } catch (err) {
         return {
@@ -57,14 +61,20 @@ export const checkHubSource = async (
     }
 };
 
-function deleteOldBuild(name: string): Promise<Response> {
-    return fetch(`${getHubUrl()}build/${name}`, {
+function deleteOldBuild(
+    name: string,
+    context?: RuntimeContextOptions,
+): Promise<Response> {
+    return fetch(`${getHubUrl(context)}build/${name}`, {
         method: "DELETE",
     });
 }
 
-function addNewBuildConfRequest(name: string): Promise<Response> {
-    return fetch(`${getHubUrl()}buildconf`, {
+function addNewBuildConfRequest(
+    name: string,
+    context?: RuntimeContextOptions,
+): Promise<Response> {
+    return fetch(`${getHubUrl(context)}buildconf`, {
         method: "POST",
         body: JSON.stringify({
             name,
@@ -78,11 +88,14 @@ function addNewBuildConfRequest(name: string): Promise<Response> {
     });
 }
 
-function addNewBuildRequest(name: string): Promise<Response> {
+function addNewBuildRequest(
+    name: string,
+    context?: RuntimeContextOptions,
+): Promise<Response> {
     // cohd_20260205_dasr1s => cohd, used to locate build config
     const buildConfName = name.split("_").slice(0, -2).join("_");
 
-    return fetch(`${getHubUrl()}build/${buildConfName}/new`, {
+    return fetch(`${getHubUrl(context)}build/${buildConfName}/new`, {
         method: "PUT",
         body: JSON.stringify({
             target_name: name,
@@ -102,8 +115,9 @@ function makeIndexRequest(
     name: string,
     mode?: string,
     indexerEnv = DEFAULT_INDEX_TARGET_LOCATION,
+    context?: RuntimeContextOptions,
 ): Promise<Response> {
-    const url = `${getHubUrl()}index`;
+    const url = `${getHubUrl(context)}index`;
 
     const payload: IndexPyalod = {
         build_name: name,
@@ -124,8 +138,11 @@ function makeIndexRequest(
     });
 }
 
-function makeReIndexRequest(name: string): Promise<Response> {
-    const url = `${getHubUrl()}index`;
+function makeReIndexRequest(
+    name: string,
+    context?: RuntimeContextOptions,
+): Promise<Response> {
+    const url = `${getHubUrl(context)}index`;
     return fetch(url, {
         method: "PUT",
         body: JSON.stringify({
@@ -140,17 +157,22 @@ function makeReIndexRequest(name: string): Promise<Response> {
 function makeUploadRequest(
     name: string,
     side: "nodes" | "edges",
+    context?: RuntimeContextOptions,
 ): Promise<Response> {
     return fetch(
-        `${getHubUrl()}source/${name}.${name.toLowerCase()}_${side}/upload`,
+        `${getHubUrl(context)}source/${name}.${name.toLowerCase()}_${side}/upload`,
         {
             method: "PUT",
         },
     );
 }
 
-function makeDumpRequest(name: string, force = false): Promise<Response> {
-    return fetch(`${getHubUrl()}source/${name}/dump`, {
+function makeDumpRequest(
+    name: string,
+    force = false,
+    context?: RuntimeContextOptions,
+): Promise<Response> {
+    return fetch(`${getHubUrl(context)}source/${name}/dump`, {
         method: "PUT",
         body: JSON.stringify({
             force,
@@ -172,20 +194,25 @@ const makeReMethods =
 export const reindex = makeReMethods(makeReIndexRequest);
 export const startIndex = makeReMethods(makeIndexRequest);
 export const dump = makeReMethods(makeDumpRequest);
-export const reDump = (names: string[]) => dump(names, true);
+export const reDump = (names: string[], context?: RuntimeContextOptions) =>
+    dump(names, true, context);
 export const deleteBuilds = makeReMethods(deleteOldBuild);
 const addBuildConf = makeReMethods(addNewBuildConfRequest);
 export const addNewBuild = makeReMethods(addNewBuildRequest);
 
-function reUpload(names: string[], mode: UploadMode) {
+function reUpload(
+    names: string[],
+    mode: UploadMode,
+    context?: RuntimeContextOptions,
+) {
     const requestPromises: Promise<Response>[] = names.reduce(
         (promises: Promise<Response>[], name) => {
             if (mode === "edge" || mode === "full") {
-                promises.push(makeUploadRequest(name, "edges"));
+                promises.push(makeUploadRequest(name, "edges", context));
             }
 
             if (mode === "node" || mode === "full") {
-                promises.push(makeUploadRequest(name, "nodes"));
+                promises.push(makeUploadRequest(name, "nodes", context));
             }
 
             return promises;

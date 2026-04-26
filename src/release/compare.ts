@@ -5,16 +5,18 @@ import {
     readNames,
     validateDeployClusterName,
 } from "./common.js";
+import type { RuntimeContextOptions } from "../runtime-context.js";
 
 interface CompareOptions {
     fileName: string;
     sourceTarget: DeployTarget;
     targetTarget: DeployTarget;
+    context?: RuntimeContextOptions;
 }
 
 const RED = "\x1b[31m";
 const RESET = "\x1b[0m";
-const ANSI_PATTERN = /\x1b\[[0-9;]*m/g;
+const ANSI_PATTERN = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
 const STATUS_MATCH = "OK";
 const STATUS_MISMATCH = "DIFF";
 
@@ -40,14 +42,15 @@ export const compareIndicesAcrossTargets = async ({
     fileName,
     sourceTarget,
     targetTarget,
+    context,
 }: CompareOptions) => {
     if (sourceTarget === targetTarget) {
         throw new Error("Compare targets must be different");
     }
 
-    const indexNames = readNames(fileName);
-    const sourceConfig = getDeployConfig(sourceTarget);
-    const targetConfig = getDeployConfig(targetTarget);
+    const indexNames = readNames(fileName, context);
+    const sourceConfig = getDeployConfig(sourceTarget, context);
+    const targetConfig = getDeployConfig(targetTarget, context);
     const sameEsUrl = sourceConfig.ES_URL === targetConfig.ES_URL;
     const sameHostHeader = sourceConfig.host === targetConfig.host;
 
@@ -75,13 +78,13 @@ export const compareIndicesAcrossTargets = async ({
     }
 
     console.log(
-        `Comparing ${indexNames.length} indices from ${fileName} between ${sourceTarget} and ${targetTarget}`,
+        `Comparing ${String(indexNames.length)} indices from ${fileName} between ${sourceTarget} and ${targetTarget}`,
     );
     console.log(
-        `${sourceTarget}: ${sourceConfig.ES_URL} (${sourceValidation.actualClusterName})`,
+        `${sourceTarget}: ${sourceConfig.ES_URL} (${sourceValidation.actualClusterName ?? "<unavailable>"})`,
     );
     console.log(
-        `${targetTarget}: ${targetConfig.ES_URL} (${targetValidation.actualClusterName})`,
+        `${targetTarget}: ${targetConfig.ES_URL} (${targetValidation.actualClusterName ?? "<unavailable>"})`,
     );
     console.log("");
 
@@ -172,6 +175,6 @@ export const compareIndicesAcrossTargets = async ({
     }
 
     console.log(
-        `\n✨ Compare complete: ${matched} matched, ${mismatched} mismatched`,
+        `\n✨ Compare complete: ${String(matched)} matched, ${String(mismatched)} mismatched`,
     );
 };

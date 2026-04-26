@@ -13,7 +13,22 @@
     },
     "type": "module",
     "main": "lib/index.js",
+    "types": "lib/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./lib/index.d.ts",
+            "import": "./lib/index.js"
+        },
+        "./release": {
+            "types": "./lib/release/index.d.ts",
+            "import": "./lib/release/index.js"
+        }
+    },
+    "bin": {
+        "dogpark-data": "bin/dogpark-data.js"
+    },
     "files": [
+        "bin/",
         "LICENSE.md",
         "README.md",
         "lib/",
@@ -21,6 +36,7 @@
     ],
     "scripts": {
         "build": "tsdown",
+        "dogpark-data": "node bin/dogpark-data.js",
         "format": "prettier .",
         "lint": "eslint . --max-warnings 0",
         "prepare": "husky",

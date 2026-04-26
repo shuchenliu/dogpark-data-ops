@@ -1,3 +1,6 @@
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 import {
     type DeployTarget,
     DEFAULT_DEPLOY_TARGET,
@@ -15,14 +18,60 @@ import { removeIndicesWithDeleteTag } from "./delete.js";
 import { removeStoredBuilds } from "./remove-builds.js";
 import { getHubUrl, pingHub } from "../utils.js";
 import { ALL_DATASETS, DUMP_ONLY, SPECIAL_DATASETS } from "../common.js";
+import { isOnPremiseMode, setOnPremiseMode } from "../runtime-config.js";
 import {
-    RUNTIME_CONFIG_PATH,
-    isOnPremiseMode,
-    setOnPremiseMode,
-} from "../runtime-config.js";
+    type RuntimeContextOptions,
+    resolveRuntimeContext,
+} from "../runtime-context.js";
 
-(async function () {
-    const args = process.argv.slice(2);
+export type ReleaseCommandOptions = RuntimeContextOptions;
+
+const WORKSPACE_ROOT_FLAGS = new Set(["--workspace-root", "--root"]);
+
+const extractWorkspaceRoot = (inputArgs: string[]) => {
+    const args: string[] = [];
+    let workspaceRoot: string | undefined;
+
+    for (let i = 0; i < inputArgs.length; i++) {
+        const arg = inputArgs[i];
+
+        if (arg.startsWith("--workspace-root=")) {
+            workspaceRoot = arg.slice("--workspace-root=".length);
+            continue;
+        }
+
+        if (arg.startsWith("--root=")) {
+            workspaceRoot = arg.slice("--root=".length);
+            continue;
+        }
+
+        if (WORKSPACE_ROOT_FLAGS.has(arg)) {
+            const nextArg = inputArgs[i + 1];
+            if (!nextArg || nextArg.startsWith("-")) {
+                throw new Error(`${arg} requires a workspace path`);
+            }
+
+            workspaceRoot = nextArg;
+            i += 1;
+            continue;
+        }
+
+        args.push(arg);
+    }
+
+    return { args, workspaceRoot };
+};
+
+export const runDogparkDataCommand = async (
+    inputArgs: string[],
+    options: ReleaseCommandOptions = {},
+) => {
+    const extracted = extractWorkspaceRoot(inputArgs);
+    const runtimeContext = resolveRuntimeContext({
+        ...options,
+        workspaceRoot: extracted.workspaceRoot ?? options.workspaceRoot,
+    });
+    const args = extracted.args;
 
     // Parse flags
     const hasDump = args.includes("--dump");
@@ -70,18 +119,20 @@ import {
     }
 
     if (enableOnPremise) {
-        setOnPremiseMode(true);
+        setOnPremiseMode(true, runtimeContext);
         console.log(
-            `Persisted runtime mode: on-premise (${RUNTIME_CONFIG_PATH})`,
+            `Persisted runtime mode: on-premise (${runtimeContext.runtimeConfigPath})`,
         );
     } else if (disableOnPremise) {
-        setOnPremiseMode(false);
-        console.log(`Persisted runtime mode: local (${RUNTIME_CONFIG_PATH})`);
+        setOnPremiseMode(false, runtimeContext);
+        console.log(
+            `Persisted runtime mode: local (${runtimeContext.runtimeConfigPath})`,
+        );
     }
 
-    const currentOnPremiseMode = isOnPremiseMode();
-    const currentHubUrl = getHubUrl();
-    const activeDeployConfigs = getActiveDeployConfigs();
+    const currentOnPremiseMode = isOnPremiseMode(runtimeContext);
+    const currentHubUrl = getHubUrl(runtimeContext);
+    const activeDeployConfigs = getActiveDeployConfigs(runtimeContext);
 
     // Parse batch mode for staging
     let stagingBatch: StagingBatchConfig | undefined;
@@ -104,7 +155,7 @@ import {
         }
         if (batchNumber > totalBatches) {
             throw new Error(
-                `Batch number ${batchNumber} exceeds total batches ${totalBatches}`,
+                `Batch number ${String(batchNumber)} exceeds total batches ${String(totalBatches)}`,
             );
         }
         stagingBatch = { batchNumber, totalBatches };
@@ -220,8 +271,11 @@ import {
         {
             check: () => hasCheck,
             execute: async () => {
-                const deployConfig = getDeployConfig(deployTarget);
-                const hubPing = await pingHub();
+                const deployConfig = getDeployConfig(
+                    deployTarget,
+                    runtimeContext,
+                );
+                const hubPing = await pingHub(runtimeContext);
                 const { ok, actualClusterName } =
                     await validateDeployClusterName(deployConfig);
 
@@ -232,7 +286,9 @@ import {
                 if (hubPing.ok) {
                     console.log(`✅ Hub reachable`);
                 } else {
-                    console.log(`❌ Hub unreachable: ${hubPing.error}`);
+                    console.log(
+                        `❌ Hub unreachable: ${hubPing.error ?? "<unknown>"}`,
+                    );
                 }
 
                 console.log(`Deploy target: ${deployConfig.target}`);
@@ -259,6 +315,7 @@ import {
                     fileName: compareFileName ?? "latest-builds.txt",
                     sourceTarget,
                     targetTarget: secondTarget,
+                    context: runtimeContext,
                 });
             },
         },
@@ -287,13 +344,14 @@ import {
                 }
 
                 console.log(
-                    `Starting dump process for ${targets.length} datasets...`,
+                    `Starting dump process for ${String(targets.length)} datasets...`,
                 );
                 await startDumpJobs(
                     targets,
                     durationSeconds * 1000,
                     hasDryRun,
                     hasForceDump,
+                    runtimeContext,
                 );
             },
         },
@@ -305,6 +363,7 @@ import {
                     DATASETS,
                     durationSeconds * 1000,
                     hasDryRun,
+                    runtimeContext,
                 );
             },
         },
@@ -312,14 +371,18 @@ import {
             check: () => hasRemove,
             execute: async () => {
                 console.log("Starting removal process...");
-                await removeStoredBuilds(removeFileName, hasDryRun);
+                await removeStoredBuilds(
+                    removeFileName,
+                    hasDryRun,
+                    runtimeContext,
+                );
             },
         },
         {
             check: () => hasReleaseStaging,
             execute: async () => {
                 console.log("Starting staging release process...");
-                const targetFile = stagingFileName || "latest-builds.txt";
+                const targetFile = stagingFileName ?? "latest-builds.txt";
                 await releaseStaging(
                     targetFile,
                     hasDryRun,
@@ -327,6 +390,7 @@ import {
                     hasStagingPurgeMode,
                     hasStagingTagsOnly,
                     stagingBatch,
+                    runtimeContext,
                 );
             },
         },
@@ -334,12 +398,13 @@ import {
             check: () => hasReleaseProd,
             execute: async () => {
                 console.log("Starting prod release process...");
-                const targetFile = prodFileName || "latest-builds.txt";
+                const targetFile = prodFileName ?? "latest-builds.txt";
                 await releaseProd(
                     targetFile,
                     hasDryRun,
                     !hasSkipMarkOldDeprForDeletion,
                     deployTarget,
+                    runtimeContext,
                 );
             },
         },
@@ -347,7 +412,11 @@ import {
             check: () => hasRemoveDeleteTaggedIndices,
             execute: async () => {
                 console.log("Starting deletion of DEL_TAG indices...");
-                await removeIndicesWithDeleteTag(hasDryRun, deployTarget);
+                await removeIndicesWithDeleteTag(
+                    hasDryRun,
+                    deployTarget,
+                    runtimeContext,
+                );
             },
         },
     ];
@@ -360,16 +429,21 @@ import {
         console.log(
             `Current runtime mode: ${currentOnPremiseMode ? "on-premise" : "local"}`,
         );
-        console.log(`Runtime config file: ${RUNTIME_CONFIG_PATH}`);
+        console.log(`Workspace root: ${runtimeContext.workspaceRoot}`);
+        console.log(`Runtime config file: ${runtimeContext.runtimeConfigPath}`);
+        console.log(`Release records dir: ${runtimeContext.releaseRecordsDir}`);
         console.log(`Active hub URL: ${currentHubUrl}`);
         console.log(
             `Default deploy target: ${DEFAULT_DEPLOY_TARGET} (${activeDeployConfigs[DEFAULT_DEPLOY_TARGET].ES_URL})`,
         );
     } else {
         console.log(
-            "Usage: npx tsx release.ts [--dump] [-b|--build] [-rb|--remove-build [filename]] [-rs|--release-staging [filename]] [-rp|--release-prod [filename]] [-rdi|--remove-delete-tagged-indices]",
+            "Usage: dogpark-data [--workspace-root <path>] [--dump] [-b|--build] [-rb|--remove-build [filename]] [-rs|--release-staging [filename]] [-rp|--release-prod [filename]] [-rdi|--remove-delete-tagged-indices]",
         );
         console.log("\nRuntime options:");
+        console.log(
+            "  --workspace-root, --root <path>  Resolve local config, release records, and relative files from this workspace",
+        );
         console.log(
             "  --on-premise                Persist on-premise mode and use the on-premise hub/deploy config defaults",
         );
@@ -450,4 +524,34 @@ import {
             "  -d, --dry-run               Show what would happen without making actual requests",
         );
     }
-})();
+};
+
+const getRealPath = (targetPath: string) => {
+    try {
+        return fs.realpathSync(targetPath);
+    } catch {
+        return path.resolve(targetPath);
+    }
+};
+
+const isCliEntrypoint = () => {
+    const entrypoint = process.argv[1];
+    if (!entrypoint) {
+        return false;
+    }
+
+    return (
+        getRealPath(entrypoint) === getRealPath(fileURLToPath(import.meta.url))
+    );
+};
+
+if (isCliEntrypoint()) {
+    void runDogparkDataCommand(process.argv.slice(2)).catch(
+        (error: unknown) => {
+            console.error(
+                error instanceof Error ? error.message : String(error),
+            );
+            process.exitCode = 1;
+        },
+    );
+}

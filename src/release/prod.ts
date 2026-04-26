@@ -1,4 +1,5 @@
 import { getHubUrl, pingHub } from "../utils.js";
+import type { RuntimeContextOptions } from "../runtime-context.js";
 import {
     type AliasOperation,
     type DeployTarget,
@@ -23,23 +24,24 @@ export const releaseProd = async (
     dryRun = false,
     markOldDeprForDeletion = true,
     deployTarget: DeployTarget = DEFAULT_DEPLOY_TARGET,
+    context?: RuntimeContextOptions,
 ) => {
     const dryRunLabel = dryRun ? "[DRY RUN] " : "";
-    const hubUrl = getHubUrl();
-    const deployConfig = getDeployConfig(deployTarget);
+    const hubUrl = getHubUrl(context);
+    const deployConfig = getDeployConfig(deployTarget, context);
     const { ok, actualClusterName } =
         await validateDeployClusterName(deployConfig);
 
     // Ping hub before proceeding
-    const hubPing = await pingHub();
+    const hubPing = await pingHub(context);
     if (!hubPing.ok) {
         if (dryRun) {
             console.warn(
-                `\x1b[31m${dryRunLabel}Warning: Hub unreachable at ${hubUrl} (${hubPing.error})\x1b[0m`,
+                `\x1b[31m${dryRunLabel}Warning: Hub unreachable at ${hubUrl} (${hubPing.error ?? "<unknown>"})\x1b[0m`,
             );
         } else {
             throw new Error(
-                `\x1b[31mHub unreachable at ${hubUrl} (${hubPing.error}). Aborting prod release.\x1b[0m`,
+                `\x1b[31mHub unreachable at ${hubUrl} (${hubPing.error ?? "<unknown>"}). Aborting prod release.\x1b[0m`,
             );
         }
     } else {
@@ -62,7 +64,7 @@ export const releaseProd = async (
     }
 
     // 1. get target staging indices
-    const stagingCandidates = readNames(buildRecordName);
+    const stagingCandidates = readNames(buildRecordName, context);
     if (stagingCandidates.length === 0) {
         throw new Error("No staging indices provided for prod release");
     }
@@ -98,13 +100,15 @@ export const releaseProd = async (
             `${dryRunLabel}Would run prod release on ${deployConfig.target} (${deployConfig.ES_URL})`,
         );
         console.log(
-            `${dryRunLabel}Validated ES cluster_name: ${actualClusterName}`,
+            `${dryRunLabel}Validated ES cluster_name: ${actualClusterName ?? "<unavailable>"}`,
         );
         console.log(
-            `${dryRunLabel}Would switch prod alias to ${normalCandidates.length} staging indices`,
+            `${dryRunLabel}Would switch prod alias to ${String(normalCandidates.length)} staging indices`,
         );
         console.log(`${dryRunLabel}Would promote staging indices:`);
-        normalCandidates.forEach((name) => console.log(`  ${name}`));
+        normalCandidates.forEach((name) => {
+            console.log(`  ${name}`);
+        });
         if (resolvedSpecial.length > 0) {
             console.log(
                 `${dryRunLabel}Would promote special indices (custom prod tags):`,
@@ -118,28 +122,37 @@ export const releaseProd = async (
                 console.log(`  ${name} -> ${entry.prod_tag}`);
                 if (currentHolders.length > 0) {
                     console.log(`    current holder(s) to be deprecated:`);
-                    currentHolders.forEach((h) => console.log(`      ${h}`));
+                    currentHolders.forEach((h) => {
+                        console.log(`      ${h}`);
+                    });
                 } else {
                     console.log(`    (no current holder)`);
                 }
             }
         }
         console.log(`${dryRunLabel}Current prod indices (${PROD_TAG}):`);
-        prodNames.forEach((name) => console.log(`  ${name}`));
+        prodNames.forEach((name) => {
+            console.log(`  ${name}`);
+        });
         console.log(
             `${dryRunLabel}Would deprecate current prod indices and clear staging tags`,
         );
         if (markOldDeprForDeletion && oldDeprNames.length > 0) {
             console.log(
-                `${dryRunLabel}Would mark ${oldDeprNames.length} old deprecated indices for deletion:`,
+                `${dryRunLabel}Would mark ${String(oldDeprNames.length)} old deprecated indices for deletion:`,
             );
-            oldDeprNames.forEach((name) => console.log(`  ${name}`));
+            oldDeprNames.forEach((name) => {
+                console.log(`  ${name}`);
+            });
         }
         const fileName = getTimeString();
         const deprFileName = `depr-${fileName}-dry-run.txt`;
         const deprFilePath = writeReleaseRecord(
             deprFileName,
             prodNames.join("\n"),
+            undefined,
+            undefined,
+            context,
         );
         console.log(
             `${dryRunLabel}Recorded deprecated indices to ${deprFilePath}`,
@@ -227,7 +240,7 @@ export const releaseProd = async (
             alias: DEL_TAG,
         });
         console.log(
-            `Marking ${oldDeprNames.length} old deprecated indices for deletion`,
+            `Marking ${String(oldDeprNames.length)} old deprecated indices for deletion`,
         );
     }
 
@@ -244,6 +257,9 @@ export const releaseProd = async (
     const deprFilePath = writeReleaseRecord(
         `depr-${fileName}`,
         prodNames.join("\n"),
+        undefined,
+        undefined,
+        context,
     );
     console.log(`Recorded deprecated indices to ${deprFilePath}`);
 };

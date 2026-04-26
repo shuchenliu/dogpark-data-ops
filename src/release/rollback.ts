@@ -13,16 +13,18 @@ import {
     validateDeployClusterName,
     writeReleaseRecord,
 } from "./common.js";
+import type { RuntimeContextOptions } from "../runtime-context.js";
 
 export const rollBackIndices = async (
     deprRecordFileName: string,
     deployTarget: DeployTarget = DEFAULT_DEPLOY_TARGET,
+    context?: RuntimeContextOptions,
 ) => {
     if (!deprRecordFileName.startsWith("depr")) {
         throw new Error("Not a valid depr record");
     }
 
-    const deployConfig = getDeployConfig(deployTarget);
+    const deployConfig = getDeployConfig(deployTarget, context);
     const { ok, actualClusterName } =
         await validateDeployClusterName(deployConfig);
 
@@ -42,7 +44,7 @@ export const rollBackIndices = async (
         deployConfig.ES_URL,
         deployConfig.host,
     );
-    const indexNames = readNames(deprRecordFileName);
+    const indexNames = readNames(deprRecordFileName, context);
 
     const aliasResponse = await updateAliases(
         [
@@ -62,6 +64,9 @@ export const rollBackIndices = async (
     const deprFilePath = writeReleaseRecord(
         `depr-${fileName}`,
         prodNames.join("\n"),
+        undefined,
+        undefined,
+        context,
     );
     console.log(`Recorded deprecated indices to ${deprFilePath}`);
 };

@@ -1,4 +1,5 @@
 import { getHubUrl, sleep, startIndex, pingHub } from "../utils.js";
+import type { RuntimeContextOptions } from "../runtime-context.js";
 import {
     type AliasOperation,
     type DeployTarget,
@@ -26,11 +27,12 @@ export const releaseStaging = async (
     purgeMode = false,
     tagsOnly = false,
     batch?: StagingBatchConfig,
+    context?: RuntimeContextOptions,
 ) => {
-    const allBuildNames = readNames(fileName);
+    const allBuildNames = readNames(fileName, context);
     const dryRunLabel = dryRun ? "[DRY RUN] " : "";
-    const hubUrl = getHubUrl();
-    const deployConfig = getDeployConfig(deployTarget);
+    const hubUrl = getHubUrl(context);
+    const deployConfig = getDeployConfig(deployTarget, context);
     const { ok, actualClusterName } =
         await validateDeployClusterName(deployConfig);
     const purgeModeLabel = purgeMode ? "ENABLED" : "DISABLED";
@@ -38,15 +40,15 @@ export const releaseStaging = async (
 
     // Ping hub before proceeding (only needed when indexing)
     if (!tagsOnly) {
-        const hubPing = await pingHub();
+        const hubPing = await pingHub(context);
         if (!hubPing.ok) {
             if (dryRun) {
                 console.warn(
-                    `\x1b[31m${dryRunLabel}Warning: Hub unreachable at ${hubUrl} (${hubPing.error})\x1b[0m`,
+                    `\x1b[31m${dryRunLabel}Warning: Hub unreachable at ${hubUrl} (${hubPing.error ?? "<unknown>"})\x1b[0m`,
                 );
             } else {
                 throw new Error(
-                    `\x1b[31mHub unreachable at ${hubUrl} (${hubPing.error}). Aborting staging release.\x1b[0m`,
+                    `\x1b[31mHub unreachable at ${hubUrl} (${hubPing.error ?? "<unknown>"}). Aborting staging release.\x1b[0m`,
                 );
             }
         } else {
@@ -61,14 +63,14 @@ export const releaseStaging = async (
         const { batchNumber, totalBatches } = batch;
         if (batchNumber < 1 || batchNumber > totalBatches) {
             throw new Error(
-                `Invalid batch number ${batchNumber}: must be between 1 and ${totalBatches}`,
+                `Invalid batch number ${String(batchNumber)}: must be between 1 and ${String(totalBatches)}`,
             );
         }
         const chunkSize = Math.ceil(allBuildNames.length / totalBatches);
         const start = (batchNumber - 1) * chunkSize;
         const end = start + chunkSize;
         buildNames = allBuildNames.slice(start, end);
-        batchLabel = `batch ${batchNumber}/${totalBatches} (${buildNames.length} builds in this batch, ${allBuildNames.length} total)`;
+        batchLabel = `batch ${String(batchNumber)}/${String(totalBatches)} (${String(buildNames.length)} builds in this batch, ${String(allBuildNames.length)} total)`;
     } else {
         buildNames = allBuildNames;
         batchLabel = "DISABLED";
@@ -114,13 +116,13 @@ export const releaseStaging = async (
         console.log(`${dryRunLabel}Tags-only mode: ${tagsOnlyLabel}`);
         console.log(`${dryRunLabel}Batch mode: ${batchLabel}`);
         console.log(
-            `${dryRunLabel}Validated ES cluster_name: ${actualClusterName}`,
+            `${dryRunLabel}Validated ES cluster_name: ${actualClusterName ?? "<unavailable>"}`,
         );
         if (tagsOnly) {
             console.log(`${dryRunLabel}Would SKIP indexing (tags-only mode)`);
         } else {
             console.log(
-                `${dryRunLabel}Would start indexing for ${buildNames.length} builds`,
+                `${dryRunLabel}Would start indexing for ${String(buildNames.length)} builds`,
             );
         }
         console.log(`${dryRunLabel}Would assign staging tags to:`);
@@ -132,7 +134,7 @@ export const releaseStaging = async (
         }
     } else {
         console.log(
-            `Validated ES cluster_name: ${actualClusterName} for target ${deployConfig.target}`,
+            `Validated ES cluster_name: ${actualClusterName ?? "<unavailable>"} for target ${deployConfig.target}`,
         );
         console.log(`Purge mode: ${purgeModeLabel}`);
         console.log(`Tags-only mode: ${tagsOnlyLabel}`);
@@ -144,6 +146,7 @@ export const releaseStaging = async (
                 buildNames,
                 purgeMode ? "purge" : undefined,
                 deployConfig.target,
+                context,
             );
             console.log("indexing started");
 
@@ -183,6 +186,8 @@ export const releaseStaging = async (
             await assertAliasesOk(aliasResponse);
         }
 
-        console.log(`staging tags assigned (cluster: ${actualClusterName})`);
+        console.log(
+            `staging tags assigned (cluster: ${actualClusterName ?? "<unavailable>"})`,
+        );
     }
 };

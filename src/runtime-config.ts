@@ -1,14 +1,9 @@
 import fs from "fs";
 import path from "path";
-import { fileURLToPath } from "url";
-
-const RUNTIME_CONFIG_FILE = fileURLToPath(import.meta.url);
-
-export const REPO_ROOT = path.resolve(path.dirname(RUNTIME_CONFIG_FILE), "..");
-export const RUNTIME_CONFIG_PATH = path.join(
-    REPO_ROOT,
-    ".dogpark-release-config.json",
-);
+import {
+    type RuntimeContextOptions,
+    resolveRuntimeContext,
+} from "./runtime-context.js";
 
 export interface RuntimeConfig {
     onPremise: boolean;
@@ -23,14 +18,20 @@ const isMissingFileError = (error: unknown): error is NodeJS.ErrnoException =>
     "code" in error &&
     (error as NodeJS.ErrnoException).code === "ENOENT";
 
-export const readRuntimeConfig = (): RuntimeConfig => {
+export const getRuntimeConfigPath = (context?: RuntimeContextOptions) =>
+    resolveRuntimeContext(context).runtimeConfigPath;
+
+export const readRuntimeConfig = (
+    context?: RuntimeContextOptions,
+): RuntimeConfig => {
+    const runtimeConfigPath = getRuntimeConfigPath(context);
     let raw: string;
 
     try {
-        raw = fs.readFileSync(RUNTIME_CONFIG_PATH, "utf8");
+        raw = fs.readFileSync(runtimeConfigPath, "utf8");
     } catch (error) {
         if (isMissingFileError(error)) {
-            writeRuntimeConfig(DEFAULT_RUNTIME_CONFIG);
+            writeRuntimeConfig(DEFAULT_RUNTIME_CONFIG, context);
             return DEFAULT_RUNTIME_CONFIG;
         }
 
@@ -44,7 +45,7 @@ export const readRuntimeConfig = (): RuntimeConfig => {
         Array.isArray(parsed)
     ) {
         throw new Error(
-            `Expected runtime config at ${RUNTIME_CONFIG_PATH} to be a JSON object`,
+            `Expected runtime config at ${runtimeConfigPath} to be a JSON object`,
         );
     }
 
@@ -54,18 +55,27 @@ export const readRuntimeConfig = (): RuntimeConfig => {
     };
 };
 
-export const writeRuntimeConfig = (config: RuntimeConfig) => {
+export const writeRuntimeConfig = (
+    config: RuntimeConfig,
+    context?: RuntimeContextOptions,
+) => {
+    const runtimeConfigPath = getRuntimeConfigPath(context);
+    fs.mkdirSync(path.dirname(runtimeConfigPath), { recursive: true });
     fs.writeFileSync(
-        RUNTIME_CONFIG_PATH,
-        `${JSON.stringify(config, null, 2)}\n`,
+        runtimeConfigPath,
+        `${JSON.stringify(config, null, 4)}\n`,
         "utf8",
     );
 };
 
-export const isOnPremiseMode = () => readRuntimeConfig().onPremise;
+export const isOnPremiseMode = (context?: RuntimeContextOptions) =>
+    readRuntimeConfig(context).onPremise;
 
-export const setOnPremiseMode = (onPremise: boolean) => {
+export const setOnPremiseMode = (
+    onPremise: boolean,
+    context?: RuntimeContextOptions,
+) => {
     const nextConfig: RuntimeConfig = { onPremise };
-    writeRuntimeConfig(nextConfig);
+    writeRuntimeConfig(nextConfig, context);
     return nextConfig;
 };

@@ -7,13 +7,15 @@ import {
     getIndexNamesWithAlias,
     validateDeployClusterName,
 } from "./common.js";
+import type { RuntimeContextOptions } from "../runtime-context.js";
 
 export const removeIndicesWithDeleteTag = async (
-    dryRun: boolean = false,
+    dryRun = false,
     deployTarget: DeployTarget = DEFAULT_DEPLOY_TARGET,
+    context?: RuntimeContextOptions,
 ): Promise<void> => {
     const dryRunLabel = dryRun ? "[DRY RUN] " : "";
-    const deployConfig = getDeployConfig(deployTarget);
+    const deployConfig = getDeployConfig(deployTarget, context);
     const { ok, actualClusterName } =
         await validateDeployClusterName(deployConfig);
 
@@ -44,10 +46,10 @@ export const removeIndicesWithDeleteTag = async (
     }
 
     console.log(
-        `${dryRunLabel}Target ${deployConfig.target} validated (cluster: ${actualClusterName})`,
+        `${dryRunLabel}Target ${deployConfig.target} validated (cluster: ${actualClusterName ?? "<unavailable>"})`,
     );
     console.log(
-        `${dryRunLabel}Found ${indexNames.length} indices tagged for deletion (${DEL_TAG})`,
+        `${dryRunLabel}Found ${String(indexNames.length)} indices tagged for deletion (${DEL_TAG})`,
     );
 
     indexNames.forEach((indexName) => {
@@ -60,7 +62,7 @@ export const removeIndicesWithDeleteTag = async (
 
     if (dryRun) {
         console.log(
-            `\n✨ ${dryRunLabel}Deletion complete: ${indexNames.length} successful, 0 failed`,
+            `\n✨ ${dryRunLabel}Deletion complete: ${String(indexNames.length)} successful, 0 failed`,
         );
         return;
     }
@@ -68,6 +70,6 @@ export const removeIndicesWithDeleteTag = async (
     await deleteIndices(indexNames, deployConfig.ES_URL, deployConfig.host);
 
     console.log(
-        `\n✨ Deletion complete: ${indexNames.length} successful, 0 failed`,
+        `\n✨ Deletion complete: ${String(indexNames.length)} successful, 0 failed`,
     );
 };

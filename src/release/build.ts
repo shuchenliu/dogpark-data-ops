@@ -1,13 +1,14 @@
 import { addNewBuild, getHubUrl, sleep, pingHub } from "../utils.js";
 import { ALL_DATASETS, SPECIAL_DATASETS } from "../common.js";
 import { getBuildName, getTimeString, writeReleaseRecord } from "./common.js";
+import type { RuntimeContextOptions } from "../runtime-context.js";
 
 const DATASETS = [
     ...ALL_DATASETS,
     ...SPECIAL_DATASETS.map((d) => d.build_name),
 ];
 
-interface BuildResult {
+export interface BuildResult {
     dataset: string;
     buildName: string;
     success: boolean;
@@ -15,7 +16,7 @@ interface BuildResult {
     error?: string;
 }
 
-const mockAddNewBuild = (names: string[]) => {
+const mockAddNewBuild = (names: string[], _context?: RuntimeContextOptions) => {
     return Promise.resolve(names.map(() => ({ status: "fulfilled" as const })));
 };
 
@@ -25,32 +26,33 @@ const formatTime = (seconds: number): string => {
     const secs = seconds % 60;
 
     if (hours > 0) {
-        return `${hours}h ${minutes}m ${secs}s`;
+        return `${String(hours)}h ${String(minutes)}m ${String(secs)}s`;
     } else if (minutes > 0) {
-        return `${minutes}m ${secs}s`;
+        return `${String(minutes)}m ${String(secs)}s`;
     } else {
-        return `${secs}s`;
+        return `${String(secs)}s`;
     }
 };
 
 export const startAddNewBuilds = async (
     names: string[],
-    totalDurationMs: number = 180000,
-    dryRun: boolean = false,
+    totalDurationMs = 180000,
+    dryRun = false,
+    context?: RuntimeContextOptions,
 ): Promise<BuildResult[]> => {
     const dryRunLabel = dryRun ? "[DRY RUN] " : "";
-    const hubUrl = getHubUrl();
+    const hubUrl = getHubUrl(context);
 
     // Ping hub before proceeding
-    const hubPing = await pingHub();
+    const hubPing = await pingHub(context);
     if (!hubPing.ok) {
         if (dryRun) {
             console.warn(
-                `\x1b[31m${dryRunLabel}Warning: Hub unreachable at ${hubUrl} (${hubPing.error})\x1b[0m`,
+                `\x1b[31m${dryRunLabel}Warning: Hub unreachable at ${hubUrl} (${hubPing.error ?? "<unknown>"})\x1b[0m`,
             );
         } else {
             throw new Error(
-                `\x1b[31mHub unreachable at ${hubUrl} (${hubPing.error}). Aborting build.\x1b[0m`,
+                `\x1b[31mHub unreachable at ${hubUrl} (${hubPing.error ?? "<unknown>"}). Aborting build.\x1b[0m`,
             );
         }
     } else {
@@ -61,7 +63,7 @@ export const startAddNewBuilds = async (
     const intervalMs = Math.floor(totalDurationMs / names.length);
 
     console.log(
-        `${dryRunLabel}Starting to add ${names.length} builds over ${totalDurationMs}ms (~${intervalMs}ms between each)`,
+        `${dryRunLabel}Starting to add ${String(names.length)} builds over ${String(totalDurationMs)}ms (~${String(intervalMs)}ms between each)`,
     );
 
     const buildAsync = dryRun ? mockAddNewBuild : addNewBuild;
@@ -82,7 +84,7 @@ export const startAddNewBuilds = async (
         const timestamp = new Date().toISOString();
         const index = i + 1;
 
-        const buildPromise = buildAsync([buildName])
+        const buildPromise = buildAsync([buildName], context)
             .then((result) => {
                 process.stdout.write("\r\x1b[K");
 
@@ -95,33 +97,36 @@ export const startAddNewBuilds = async (
                         timestamp,
                     });
                     console.log(
-                        `✅ [${index}/${names.length}] ${dryRunLabel}${dataset} -> ${buildName}`,
+                        `✅ [${String(index)}/${String(names.length)}] ${dryRunLabel}${dataset} -> ${buildName}`,
                     );
                 } else {
+                    const errorMessage = String(settled.reason);
                     results.push({
                         dataset,
                         buildName,
                         success: false,
                         timestamp,
-                        error: String(settled.reason),
+                        error: errorMessage,
                     });
                     console.log(
-                        `❌ [${index}/${names.length}] ${dataset} failed: ${settled.reason}`,
+                        `❌ [${String(index)}/${String(names.length)}] ${dataset} failed: ${errorMessage}`,
                     );
                 }
                 return result;
             })
-            .catch((err) => {
+            .catch((err: unknown) => {
+                const errorMessage =
+                    err instanceof Error ? err.message : String(err);
                 process.stdout.write("\r\x1b[K");
                 results.push({
                     dataset,
                     buildName,
                     success: false,
                     timestamp,
-                    error: err instanceof Error ? err.message : String(err),
+                    error: errorMessage,
                 });
                 console.log(
-                    `❌ [${index}/${names.length}] ${dataset} error: ${err}`,
+                    `❌ [${String(index)}/${String(names.length)}] ${dataset} error: ${errorMessage}`,
                 );
             });
 
@@ -140,7 +145,7 @@ export const startAddNewBuilds = async (
     const successful = results.filter((r) => r.success).length;
     const failed = results.filter((r) => !r.success).length;
     console.log(
-        `\n✨ ${dryRunLabel}Build complete: ${successful} successful, ${failed} failed`,
+        `\n✨ ${dryRunLabel}Build complete: ${String(successful)} successful, ${String(failed)} failed`,
     );
 
     if (successful > 0 && !dryRun) {
@@ -149,8 +154,20 @@ export const startAddNewBuilds = async (
             .map((r) => r.buildName);
         const fileName = getTimeString();
         const contents = successfulBuildNames.join("\n");
-        const latestBuildsPath = writeReleaseRecord("latest-builds", contents);
-        const timestampedBuildsPath = writeReleaseRecord(fileName, contents);
+        const latestBuildsPath = writeReleaseRecord(
+            "latest-builds",
+            contents,
+            undefined,
+            undefined,
+            context,
+        );
+        const timestampedBuildsPath = writeReleaseRecord(
+            fileName,
+            contents,
+            undefined,
+            undefined,
+            context,
+        );
         console.log(
             `Recorded latest builds to ${latestBuildsPath} and ${timestampedBuildsPath}`,
         );
@@ -165,12 +182,14 @@ export const startAddNewBuilds = async (
             contents,
             "builds",
             "dry-run",
+            context,
         );
         const timestampedBuildsPath = writeReleaseRecord(
             fileName,
             contents,
             "builds",
             "dry-run",
+            context,
         );
         console.log(
             `${dryRunLabel}Recorded dry-run builds to ${latestBuildsPath} and ${timestampedBuildsPath}`,

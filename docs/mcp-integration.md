@@ -105,6 +105,7 @@ These methods are ready to wrap as MCP tools:
 | `useLocalMode()`                                                                 | Persist local mode.                                               | Convenience wrapper.                                |
 | `useOnPremiseMode()`                                                             | Persist on-premise mode.                                          | Convenience wrapper.                                |
 | `checkConnection({ deployTarget })`                                              | Ping hub and validate Elasticsearch target.                       | Returns structured status.                          |
+| `getExistingSourcesOnHub()`                                                      | List existing data source names from the active hub.              | Read-only. Returns `string[]`.                      |
 | `buildDatasets({ datasets, durationSeconds, dryRun })`                           | Start build jobs.                                                 | Prefer `dryRun: true` by default in MCP.            |
 | `dumpSources({ source, durationSeconds, dryRun, force })`                        | Start dump jobs.                                                  | Supports one source or all configured dump targets. |
 | `removeBuilds({ fileName, dryRun })`                                             | Remove stored builds listed in a file.                            | Destructive when `dryRun` is false.                 |
@@ -122,6 +123,7 @@ Recommended initial tool set:
 dogpark_get_runtime_status
 dogpark_set_runtime_mode
 dogpark_check_connection
+dogpark_get_existing_sources_on_hub
 dogpark_compare_targets
 dogpark_dump_source_dry_run
 dogpark_build_datasets_dry_run
@@ -171,6 +173,10 @@ export async function dogparkCheckConnection(input: {
     return dogpark.checkConnection({
         deployTarget: input.deployTarget,
     });
+}
+
+export async function dogparkGetExistingSourcesOnHub() {
+    return dogpark.getExistingSourcesOnHub();
 }
 
 export async function dogparkReleaseStagingDryRun(input: {

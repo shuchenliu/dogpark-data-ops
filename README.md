@@ -28,6 +28,7 @@ const dogpark = createDogparkDataClient({
 
 const status = dogpark.getRuntimeStatus();
 await dogpark.checkConnection();
+await dogpark.getExistingSourcesOnHub();
 await dogpark.releaseStaging({ fileName: "latest-builds.txt", dryRun: true });
 ```
 

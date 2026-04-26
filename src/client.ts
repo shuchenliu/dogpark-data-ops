@@ -5,7 +5,7 @@ import {
     resolveRuntimeContext,
 } from "./runtime-context.js";
 import { isOnPremiseMode, setOnPremiseMode } from "./runtime-config.js";
-import { getHubUrl, pingHub } from "./utils.js";
+import { getHubSourceNames, getHubUrl, pingHub } from "./utils.js";
 import {
     DATASETS,
     type BuildResult,
@@ -110,6 +110,7 @@ export interface DogparkDataClient {
     checkConnection: (
         options?: DogparkConnectionCheckOptions,
     ) => Promise<DogparkConnectionCheckResult>;
+    getExistingSourcesOnHub: () => Promise<string[]>;
     buildDatasets: (
         options?: DogparkBuildDatasetsOptions,
     ) => Promise<BuildResult[]>;
@@ -181,6 +182,7 @@ export const createDogparkDataClient = (
                 deployTargetValid: deployValidation.ok,
             };
         },
+        getExistingSourcesOnHub: () => getHubSourceNames(context),
         buildDatasets: (buildOptions = {}) =>
             startAddNewBuilds(
                 buildOptions.datasets ?? DATASETS,

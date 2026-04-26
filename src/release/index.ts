@@ -16,7 +16,7 @@ import { type StagingBatchConfig, releaseStaging } from "./staging.js";
 import { releaseProd } from "./prod.js";
 import { removeIndicesWithDeleteTag } from "./delete.js";
 import { removeStoredBuilds } from "./remove-builds.js";
-import { getHubUrl, pingHub } from "../utils.js";
+import { getHubSourceNames, getHubUrl, pingHub } from "../utils.js";
 import { getAllDumpTargets } from "../common.js";
 import { isOnPremiseMode, setOnPremiseMode } from "../runtime-config.js";
 import {
@@ -77,6 +77,12 @@ export const runDogparkDataCommand = async (
     const hasDump = args.includes("--dump");
     const hasCheck = args.includes("--check");
     const hasCompare = args.includes("--compare");
+    const hasListSources =
+        args.includes("--sources") ||
+        args.includes("--datasources") ||
+        args.includes("--data-sources") ||
+        args.includes("--list-sources") ||
+        args.includes("--list-datasources");
     const hasForceDump = args.includes("--force");
     const enableOnPremise = args.includes("--on-premise");
     const disableOnPremise =
@@ -320,6 +326,19 @@ export const runDogparkDataCommand = async (
             },
         },
         {
+            check: () => hasListSources,
+            execute: async () => {
+                const sourceNames = await getHubSourceNames(runtimeContext);
+
+                console.log(
+                    `Existing data sources on ${currentHubUrl}: ${String(sourceNames.length)}`,
+                );
+                for (const sourceName of sourceNames) {
+                    console.log(sourceName);
+                }
+            },
+        },
+        {
             check: () => hasDump,
             execute: async () => {
                 const allDumpTargets = getAllDumpTargets();
@@ -431,7 +450,7 @@ export const runDogparkDataCommand = async (
         );
     } else {
         console.log(
-            "Usage: dogpark-data [--workspace-root <path>] [--dump] [-b|--build] [-rb|--remove-build [filename]] [-rs|--release-staging [filename]] [-rp|--release-prod [filename]] [-rdi|--remove-delete-tagged-indices]",
+            "Usage: dogpark-data [--workspace-root <path>] [--list-sources] [--dump] [-b|--build] [-rb|--remove-build [filename]] [-rs|--release-staging [filename]] [-rp|--release-prod [filename]] [-rdi|--remove-delete-tagged-indices]",
         );
         console.log("\nRuntime options:");
         console.log(
@@ -453,6 +472,10 @@ export const runDogparkDataCommand = async (
         console.log(
             `  --compare <${Object.keys(activeDeployConfigs).join("|")}> <${Object.keys(activeDeployConfigs).join("|")}>  Compare record counts for listed indices across two deploy targets`,
         );
+        console.log(
+            "  --list-sources              List existing data source names from the active hub",
+        );
+        console.log("  --sources, --datasources    Aliases for --list-sources");
         console.log(
             "  --file, --compare-file [filename]  Build record file for --compare (defaults to latest-builds.txt)",
         );

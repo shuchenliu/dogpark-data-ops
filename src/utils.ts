@@ -6,9 +6,41 @@ export const DEFAULT_HUB_URL = "http://localhost:19180/";
 export const ON_PREMISE_HUB_URL = "http://su06:19180/";
 
 const DEFAULT_INDEX_TARGET_LOCATION = "transltr";
+const HUB_REQUEST_TIMEOUT_MS = 10_000;
 
 export const getHubUrl = (context?: RuntimeContextOptions) =>
     isOnPremiseMode(context) ? ON_PREMISE_HUB_URL : DEFAULT_HUB_URL;
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+    typeof value === "object" && value !== null;
+
+const parseHubSourceNames = (payload: unknown) => {
+    if (!isRecord(payload)) {
+        throw new Error(
+            "Hub sources response must include a result or results array",
+        );
+    }
+
+    const results = Array.isArray(payload.results)
+        ? payload.results
+        : payload.result;
+
+    if (!Array.isArray(results)) {
+        throw new Error(
+            "Hub sources response must include a result or results array",
+        );
+    }
+
+    return results.map((entry, index) => {
+        if (!isRecord(entry) || typeof entry.name !== "string") {
+            throw new Error(
+                `Hub sources response entry ${String(index)} is missing a string name`,
+            );
+        }
+
+        return entry.name;
+    });
+};
 
 export const pingHub = async (
     context?: RuntimeContextOptions,
@@ -16,7 +48,7 @@ export const pingHub = async (
     const hubUrl = getHubUrl(context);
     try {
         const response = await fetch(hubUrl, {
-            signal: AbortSignal.timeout(10_000),
+            signal: AbortSignal.timeout(HUB_REQUEST_TIMEOUT_MS),
         });
         if (!response.ok) {
             return { ok: false, error: `HTTP ${String(response.status)}` };
@@ -30,6 +62,31 @@ export const pingHub = async (
     }
 };
 
+export const getHubSourceNames = async (
+    context?: RuntimeContextOptions,
+): Promise<string[]> => {
+    const hubUrl = getHubUrl(context);
+    const sourcesUrl = `${hubUrl}sources`;
+
+    try {
+        const response = await fetch(sourcesUrl, {
+            signal: AbortSignal.timeout(HUB_REQUEST_TIMEOUT_MS),
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP ${String(response.status)}`);
+        }
+
+        const payload = (await response.json()) as unknown;
+        return parseHubSourceNames(payload);
+    } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        throw new Error(
+            `Hub sources request failed at ${sourcesUrl}: ${errorMessage}`,
+        );
+    }
+};
+
 export const checkHubSource = async (
     name: string,
     context?: RuntimeContextOptions,
@@ -37,7 +94,7 @@ export const checkHubSource = async (
     const hubUrl = getHubUrl(context);
     try {
         const response = await fetch(`${hubUrl}source/${name}`, {
-            signal: AbortSignal.timeout(10_000),
+            signal: AbortSignal.timeout(HUB_REQUEST_TIMEOUT_MS),
         });
 
         if (response.ok) {

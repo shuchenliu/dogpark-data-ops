@@ -1,4 +1,4 @@
-import { getAllDumpTargets } from "./common.js";
+import { getBuildDatasets, getDumpTargets } from "./common.js";
 import {
     type RuntimeContext,
     type RuntimeContextOptions,
@@ -6,11 +6,7 @@ import {
 } from "./runtime-context.js";
 import { isOnPremiseMode, setOnPremiseMode } from "./runtime-config.js";
 import { getHubSourceNames, getHubUrl, pingHub } from "./utils.js";
-import {
-    DATASETS,
-    type BuildResult,
-    startAddNewBuilds,
-} from "./release/build.js";
+import { type BuildResult, startAddNewBuilds } from "./release/build.js";
 import { startDumpJobs, type DumpResult } from "./release/dump.js";
 import { releaseStaging, type StagingBatchConfig } from "./release/staging.js";
 import { releaseProd } from "./release/prod.js";
@@ -56,13 +52,20 @@ export interface DogparkConnectionCheckResult {
 }
 
 export interface DogparkBuildDatasetsOptions {
+    /** Exact build targets. Use releaseDatasets to append repo-owned special datasets. */
     datasets?: string[];
+    /** Dataset list that replaces the repo default release dataset list. */
+    releaseDatasets?: string[];
     durationSeconds?: number;
     dryRun?: boolean;
 }
 
 export interface DogparkDumpSourcesOptions {
     source?: string;
+    /** Dataset list that replaces the repo default release dataset list. */
+    releaseDatasets?: string[];
+    /** Dataset list that replaces the repo default dump-only dataset list. */
+    dumpOnlyDatasets?: string[];
     durationSeconds?: number;
     dryRun?: boolean;
     force?: boolean;
@@ -183,15 +186,31 @@ export const createDogparkDataClient = (
             };
         },
         getExistingSourcesOnHub: () => getHubSourceNames(context),
-        buildDatasets: (buildOptions = {}) =>
-            startAddNewBuilds(
-                buildOptions.datasets ?? DATASETS,
+        buildDatasets: (buildOptions = {}) => {
+            if (buildOptions.datasets && buildOptions.releaseDatasets) {
+                throw new Error(
+                    "Cannot set both datasets and releaseDatasets for buildDatasets",
+                );
+            }
+
+            const targets =
+                buildOptions.datasets ??
+                getBuildDatasets({
+                    releaseDatasets: buildOptions.releaseDatasets,
+                });
+
+            return startAddNewBuilds(
+                targets,
                 toDurationMs(buildOptions.durationSeconds),
                 buildOptions.dryRun ?? false,
                 context,
-            ),
+            );
+        },
         dumpSources: (dumpOptions = {}) => {
-            const allDumpTargets = getAllDumpTargets();
+            const allDumpTargets = getDumpTargets({
+                releaseDatasets: dumpOptions.releaseDatasets,
+                dumpOnlyDatasets: dumpOptions.dumpOnlyDatasets,
+            });
             const targets = dumpOptions.source
                 ? [dumpOptions.source]
                 : allDumpTargets;

@@ -1,5 +1,4 @@
 import { addNewBuild, getHubUrl, sleep, pingHub } from "../utils.js";
-import { ALL_DATASETS, SPECIAL_DATASETS } from "../common.js";
 import {
     formatElapsedTime,
     getBuildName,
@@ -7,11 +6,6 @@ import {
     writeReleaseRecord,
 } from "./common.js";
 import type { RuntimeContextOptions } from "../runtime-context.js";
-
-const DATASETS = [
-    ...ALL_DATASETS,
-    ...SPECIAL_DATASETS.map((d) => d.build_name),
-];
 
 export interface BuildResult {
     dataset: string;
@@ -189,5 +183,3 @@ export const startAddNewBuilds = async (
 
     return results;
 };
-
-export { DATASETS };

@@ -9,7 +9,7 @@ import {
     isDeployTarget,
     validateDeployClusterName,
 } from "./common.js";
-import { DATASETS, startAddNewBuilds } from "./build.js";
+import { startAddNewBuilds } from "./build.js";
 import { compareIndicesAcrossTargets } from "./compare.js";
 import { startDumpJobs } from "./dump.js";
 import { type StagingBatchConfig, releaseStaging } from "./staging.js";
@@ -17,16 +17,23 @@ import { releaseProd } from "./prod.js";
 import { removeIndicesWithDeleteTag } from "./delete.js";
 import { removeStoredBuilds } from "./remove-builds.js";
 import { getHubSourceNames, getHubUrl, pingHub } from "../utils.js";
-import { getAllDumpTargets } from "../common.js";
+import {
+    type DatasetSelectionOptions,
+    getBuildDatasets,
+    getDumpTargets,
+} from "../common.js";
 import { isOnPremiseMode, setOnPremiseMode } from "../runtime-config.js";
 import {
     type RuntimeContextOptions,
     resolveRuntimeContext,
 } from "../runtime-context.js";
 
-export type ReleaseCommandOptions = RuntimeContextOptions;
+export type ReleaseCommandOptions = RuntimeContextOptions &
+    DatasetSelectionOptions;
 
 const WORKSPACE_ROOT_FLAGS = new Set(["--workspace-root", "--root"]);
+const RELEASE_DATASET_FLAGS = new Set(["--datasets", "--release-datasets"]);
+const DUMP_ONLY_DATASET_FLAGS = new Set(["--dump-only-datasets"]);
 
 const extractWorkspaceRoot = (inputArgs: string[]) => {
     const args: string[] = [];
@@ -62,16 +69,112 @@ const extractWorkspaceRoot = (inputArgs: string[]) => {
     return { args, workspaceRoot };
 };
 
+const parseDatasetList = (flag: string, value: string) => {
+    const names = value
+        .split(",")
+        .map((name) => name.trim())
+        .filter(Boolean);
+
+    if (names.length === 0) {
+        throw new Error(`${flag} requires at least one dataset name`);
+    }
+
+    return names;
+};
+
+const extractDatasetSelection = (
+    inputArgs: string[],
+): { args: string[] } & DatasetSelectionOptions => {
+    const args: string[] = [];
+    const releaseDatasets: string[] = [];
+    const dumpOnlyDatasets: string[] = [];
+
+    for (let i = 0; i < inputArgs.length; i++) {
+        const arg = inputArgs[i];
+
+        if (arg.startsWith("--datasets=")) {
+            releaseDatasets.push(
+                ...parseDatasetList(
+                    "--datasets",
+                    arg.slice("--datasets=".length),
+                ),
+            );
+            continue;
+        }
+
+        if (arg.startsWith("--release-datasets=")) {
+            releaseDatasets.push(
+                ...parseDatasetList(
+                    "--release-datasets",
+                    arg.slice("--release-datasets=".length),
+                ),
+            );
+            continue;
+        }
+
+        if (arg.startsWith("--dump-only-datasets=")) {
+            dumpOnlyDatasets.push(
+                ...parseDatasetList(
+                    "--dump-only-datasets",
+                    arg.slice("--dump-only-datasets=".length),
+                ),
+            );
+            continue;
+        }
+
+        if (RELEASE_DATASET_FLAGS.has(arg)) {
+            const nextArg = inputArgs[i + 1];
+            if (!nextArg || nextArg.startsWith("-")) {
+                throw new Error(
+                    `${arg} requires a comma-separated dataset list`,
+                );
+            }
+
+            releaseDatasets.push(...parseDatasetList(arg, nextArg));
+            i += 1;
+            continue;
+        }
+
+        if (DUMP_ONLY_DATASET_FLAGS.has(arg)) {
+            const nextArg = inputArgs[i + 1];
+            if (!nextArg || nextArg.startsWith("-")) {
+                throw new Error(
+                    `${arg} requires a comma-separated dataset list`,
+                );
+            }
+
+            dumpOnlyDatasets.push(...parseDatasetList(arg, nextArg));
+            i += 1;
+            continue;
+        }
+
+        args.push(arg);
+    }
+
+    return {
+        args,
+        releaseDatasets:
+            releaseDatasets.length > 0 ? releaseDatasets : undefined,
+        dumpOnlyDatasets:
+            dumpOnlyDatasets.length > 0 ? dumpOnlyDatasets : undefined,
+    };
+};
+
 export const runDogparkDataCommand = async (
     inputArgs: string[],
     options: ReleaseCommandOptions = {},
 ) => {
     const extracted = extractWorkspaceRoot(inputArgs);
+    const datasetSelection = extractDatasetSelection(extracted.args);
     const runtimeContext = resolveRuntimeContext({
         ...options,
         workspaceRoot: extracted.workspaceRoot ?? options.workspaceRoot,
     });
-    const args = extracted.args;
+    const args = datasetSelection.args;
+    const releaseDatasets =
+        datasetSelection.releaseDatasets ?? options.releaseDatasets;
+    const dumpOnlyDatasets =
+        datasetSelection.dumpOnlyDatasets ?? options.dumpOnlyDatasets;
 
     // Parse flags
     const hasDump = args.includes("--dump");
@@ -341,7 +444,10 @@ export const runDogparkDataCommand = async (
         {
             check: () => hasDump,
             execute: async () => {
-                const allDumpTargets = getAllDumpTargets();
+                const allDumpTargets = getDumpTargets({
+                    releaseDatasets,
+                    dumpOnlyDatasets,
+                });
                 const targets = dumpSourceName
                     ? [dumpSourceName]
                     : allDumpTargets;
@@ -372,7 +478,7 @@ export const runDogparkDataCommand = async (
             execute: async () => {
                 console.log("Starting build process...");
                 await startAddNewBuilds(
-                    DATASETS,
+                    getBuildDatasets({ releaseDatasets }),
                     durationSeconds * 1000,
                     hasDryRun,
                     runtimeContext,
@@ -480,7 +586,13 @@ export const runDogparkDataCommand = async (
             "  --file, --compare-file [filename]  Build record file for --compare (defaults to latest-builds.txt)",
         );
         console.log(
-            "  --dump                      Trigger dump for all datasets (includes dump-only and standalone plugins)",
+            "  --dump                      Trigger dump for configured release, dump-only, and standalone special datasets",
+        );
+        console.log(
+            "  --datasets, --release-datasets <a,b>  Use these release datasets instead of repo defaults",
+        );
+        console.log(
+            "  --dump-only-datasets <a,b>  Use these dump-only datasets instead of repo defaults",
         );
         console.log(
             "  --source, --dump-source <name>  Trigger dump for a single source only",
@@ -490,7 +602,10 @@ export const runDogparkDataCommand = async (
         );
         console.log("\nBuild options:");
         console.log(
-            "  -b, --build                 Initiate builds for all datasets",
+            "  -b, --build                 Initiate builds for configured release datasets plus special datasets",
+        );
+        console.log(
+            "  --datasets, --release-datasets <a,b>  Use these release datasets instead of repo defaults",
         );
         console.log(
             "  -t, --duration <seconds>    Spread builds over N seconds (default: 180)",

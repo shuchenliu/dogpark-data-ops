@@ -29,6 +29,15 @@ const dogpark = createDogparkDataClient({
 const status = dogpark.getRuntimeStatus();
 await dogpark.checkConnection();
 await dogpark.getExistingSourcesOnHub();
+await dogpark.dumpSources({
+    releaseDatasets: ["alliance", "bgee"],
+    dumpOnlyDatasets: ["ncbi_gene"],
+    dryRun: true,
+});
+await dogpark.buildDatasets({
+    releaseDatasets: ["alliance", "bgee"],
+    dryRun: true,
+});
 await dogpark.releaseStaging({ fileName: "latest-builds.txt", dryRun: true });
 ```
 

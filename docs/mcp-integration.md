@@ -25,22 +25,28 @@ state from that workspace:
 - `release-records/`
 - relative input files such as `latest-builds.txt`
 
-## Build And Install
+## Install From Git
 
-When using this package from a local checkout, build it first:
+This package is intended to be consumed as a pinned Git dependency. Add a tag to
+the MCP server project's `package.json`:
 
-```bash
-pnpm build
+```json
+{
+    "dependencies": {
+        "dogpark-data-ops": "github:shuchenliu/dogpark-data-ops#v0.1.0"
+    }
+}
 ```
 
-An MCP server in another project can depend on this checkout locally:
+Then install dependencies in the MCP server project:
 
 ```bash
-pnpm add file:/path/to/dogpark-data-ops
+pnpm install
 ```
 
-If the package is packed or published, `lib/` is included through
-`package.json`, so consumers do not need to build it themselves.
+The repository does not commit `lib/`. Git dependency installs run the package
+`prepare` script, which builds `lib/` from `src/` before the consuming project
+imports it.
 
 ## Runtime Root
 

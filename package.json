@@ -1,10 +1,10 @@
 {
     "name": "dogpark-data-ops",
-    "version": "0.0.0",
+    "version": "0.1.0",
     "description": "A very lovely package. Hooray!",
     "repository": {
         "type": "git",
-        "url": "git+https://github.com//dogpark-data-ops.git"
+        "url": "git+https://github.com/shuchenliu/dogpark-data-ops.git"
     },
     "license": "MIT",
     "author": {
@@ -39,7 +39,8 @@
         "dogpark-data": "node bin/dogpark-data.js",
         "format": "prettier .",
         "lint": "eslint . --max-warnings 0",
-        "prepare": "husky",
+        "prepare": "tsdown",
+        "prepare:hooks": "husky",
         "tsc": "tsc"
     },
     "lint-staged": {

@@ -2,6 +2,23 @@
 
 Quick data operation scripts for Dogpark Ranger service
 
+## Install From Git
+
+Add this package to the consuming project's `package.json` with a pinned Git
+tag:
+
+```json
+{
+    "dependencies": {
+        "dogpark-data-ops": "github:shuchenliu/dogpark-data-ops#v0.1.0"
+    }
+}
+```
+
+Then run `pnpm install` in the consuming project. The repo does not commit
+`lib/`; Git dependency installs build it from `src/` through the package
+`prepare` script.
+
 ## CLI Runtime
 
 The release tooling keeps mutable runtime state outside the package install

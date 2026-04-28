@@ -36,7 +36,7 @@ pnpm build
 An MCP server in another project can depend on this checkout locally:
 
 ```bash
-pnpm add /Users/will/Documents/dogpark-data-ops
+pnpm add ../dogpark-data-ops
 ```
 
 If the package is packed or published, `lib/` is included through
@@ -47,7 +47,7 @@ If the package is packed or published, `lib/` is included through
 Set the workspace root in the MCP server environment:
 
 ```bash
-DOGPARK_DATA_OPS_ROOT=/Users/will/Documents/dogpark-data-ops
+DOGPARK_DATA_OPS_ROOT=/path/to/dogpark-data-ops
 ```
 
 Then bind it once at server startup:

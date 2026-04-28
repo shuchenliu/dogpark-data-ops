@@ -36,7 +36,7 @@ pnpm build
 An MCP server in another project can depend on this checkout locally:
 
 ```bash
-pnpm add ../dogpark-data-ops
+pnpm add file:/path/to/dogpark-data-ops
 ```
 
 If the package is packed or published, `lib/` is included through
